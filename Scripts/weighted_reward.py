@@ -67,6 +67,7 @@ def apply_weighted_reward(season, suffix,
     table_exists = check_table_exists(connection, "gamelogs")
     
     if not table_exists:
+        print("Creating table gamelogs")
         # Get all the gamelogs and add them to the database 
         add_gamelogs_to_db(connection, engine)
     
@@ -77,6 +78,7 @@ def apply_weighted_reward(season, suffix,
     view_exists = check_table_exists(connection, tablename="pbp_view")
     
     if not view_exists:    
+        print("Creating view pbp_view")
         # Creat a view for the play by play data 
         create_pbp_view(connection)
     

@@ -76,7 +76,7 @@ def cut_play_by_play(connection, season=None, start_date=None, end_date=None,
     FROM pbp_view WHERE """
     
     # Get one season
-    if season is not None:
+    if season is not None and start_date is None and end_date is None:
         # Include only playoffs
         if playoffs:
             query += f"GameId LIKE '{season}%' AND GameId LIKE '20__03%'"
@@ -101,6 +101,13 @@ def cut_play_by_play(connection, season=None, start_date=None, end_date=None,
             else:
                 query += f"""GameId > {season}020000 AND GameId < 2014020000 AND 
                 GameId LIKE '20__02%'"""
+        elif season is not None: 
+            # Include only playoffs
+            if playoffs:
+                query += f"GameId LIKE '{season}%' AND GameId LIKE '20__03%'"
+            # Include only regular season
+            else:
+                query += f"GameId LIKE '{season}%' AND GameId LIKE '20__02%'"
         # Get all the data
         else: 
             query += "1=1"
