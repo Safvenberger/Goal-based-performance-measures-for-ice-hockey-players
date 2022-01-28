@@ -189,12 +189,12 @@ if __name__ == "__main__":
     
     #################### --- Partitioned season --- ###########################
     # Input arguments
-    season = 2013
+    season = 2012
     n_partitions = 5
     
     # Main code
     partition_dict = partitioned_season(season, n_partitions)
-    for partition in partition_dict.keys():
+    for partition in list(partition_dict.keys())[1:]: # Skip the full season
         print(f"Partition: {partition}")
         for part in partition_dict[partition]:
             # Start and end date of the partitions
@@ -202,7 +202,7 @@ if __name__ == "__main__":
             end_date_part = partition_dict[partition][part]["end"]
             # Compute the reward
             apply_weighted_reward(season=season, 
-                                  suffix=f"{season}_partition_{partition}_part{part[-1]}", 
+                                  suffix=f"{season}_{partition}parts_partition_{partition}_part{part[-1]}", 
                                   start_date=start_date_part, 
                                   end_date=end_date_part,
                                   create_copy=True, 
