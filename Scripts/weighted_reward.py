@@ -12,7 +12,7 @@ from weighted import create_weighted_metrics
 from matchlogsScraper import check_table_exists, add_gamelogs_to_db, merge_id_and_date, create_pbp_view
 
 
-def apply_weighted_reward(season, suffix, 
+def apply_weighted_reward(season=None, suffix="", 
                           start_date=None, end_date=None,
                           create_copy=True, 
                           calc_occur=True,
@@ -102,7 +102,7 @@ def apply_weighted_reward(season, suffix,
     
     print("Creating weighted metrics...")
     # Calculate and create the weighted metrics and push to SQL
-    create_weighted_metrics(season, connection, engine, suffix)
+    create_weighted_metrics(connection, engine, season, suffix)
     
     # End of execution
     time_end = perf_counter()
@@ -189,25 +189,26 @@ if __name__ == "__main__":
     
     #################### --- Partitioned season --- ###########################
     # Input arguments
-    season = 2012
+    season = 2007
     n_partitions = 5
     
     # Main code
     partition_dict = partitioned_season(season, n_partitions)
-    for partition in list(partition_dict.keys())[1:]: # Skip the full season
+    for partition in range(2, n_partitions+1): # Skip the full season
         print(f"Partition: {partition}")
         for part in partition_dict[partition]:
+            print(f"{season}_{partition}partitions_part{part[-1]}")
             # Start and end date of the partitions
             start_date_part = partition_dict[partition][part]["start"]
             end_date_part = partition_dict[partition][part]["end"]
             # Compute the reward
-            apply_weighted_reward(season=season, 
-                                  suffix=f"{season}_{partition}parts_partition_{partition}_part{part[-1]}", 
+            apply_weighted_reward(season=None,
+                                  suffix=f"{season}_{partition}partitions_part{part[-1]}", 
                                   start_date=start_date_part, 
                                   end_date=end_date_part,
                                   create_copy=True, 
                                   multiple_seasons=False, playoffs=False)
-    
+        
     
     ##################### --- Multiple seasons --- ############################
     # Input arguments

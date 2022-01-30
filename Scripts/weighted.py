@@ -6,7 +6,7 @@ from db import connect_to_db, create_db_engine
 import numpy as np
 
 
-def get_data(connection, season, pbp_table="mpbp"):
+def get_data(connection, season=None, pbp_table="mpbp"):
     """
     Extract the needed data from the pbp, event_goal and reward tables.
 
@@ -47,8 +47,7 @@ def get_data(connection, season, pbp_table="mpbp"):
            g.ScoringTeam, g.ScoringTeamId, g.Disposition, g.GoalScorerId, 
            r.reward, g.FirstAssistId, g.SecondAssistId, {away_string}, {home_string}
     FROM {pbp_table} pbp, event_goal g, reward r
-    WHERE pbp.GameId LIKE '{season}%' 
-          AND pbp.GameId = g.GameId AND pbp.GameId = r.GameId
+    WHERE pbp.GameId = g.GameId AND pbp.GameId = r.GameId
           AND pbp.PeriodNumber >= 1 AND pbp.PeriodNumber <= 3 
           AND pbp.ExternalEventId = g.GoalId
           AND pbp.TotalElapsedTime = r.TotalElapsedTime"""
@@ -423,7 +422,7 @@ def add_to_sql(df, table_name, engine):
               chunksize=25000, index=False)
 
 
-def create_weighted_metrics(season, connection, engine, suffix=""):
+def create_weighted_metrics(connection, engine, season=None, suffix=""):
     """
     Create the weighted metrics for the given season and add them to the 
     SQL database.

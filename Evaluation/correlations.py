@@ -7,7 +7,7 @@ import numpy as np
 connection = connect_to_db("hockey")
 
 
-def correlation(metric, n, connection, 
+def correlation(season, metric, n, connection, 
                 weighted=False, multiple_seasons=False, traditional=False):
     """
 
@@ -31,9 +31,9 @@ def correlation(metric, n, connection,
                 query = f"SELECT * FROM weighted_{metric}_ranked_reg_playoffs"
             else:
                 # One full season (2013-2014)
-                query = f"SELECT * FROM weighted_{metric}_ranked_full"
+                query = f"SELECT * FROM weighted_{metric}_ranked{season}"
         else:
-            query = f"SELECT * FROM weighted_{metric}_rankedpartition_{n}_part{i}"
+            query = f"SELECT * FROM weighted_{metric}_ranked{season}_{n}partitions_part{i}"
         
         table = pd.read_sql(query, con=connection)
         
@@ -94,7 +94,7 @@ for metric in metric_list:
 for metric in metric_list:
     for part in range(1, 6):
         print(f"For {part} partitions, the metric {metric} has correlations\n"
-              f"{correlation(metric, part, connection)}\n")
+              f"{correlation(2013, metric, part, connection)}\n")
 
 # Correlation between n*weighted and weighted
 for metric in metric_list:

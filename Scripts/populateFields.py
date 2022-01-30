@@ -75,24 +75,12 @@ def cut_play_by_play(connection, season=None, start_date=None, end_date=None,
     SELECT *
     FROM pbp_view WHERE """
     
-    # Get one season
-    if season is not None and start_date is None and end_date is None:
-        # Include only playoffs
-        if playoffs:
-            query += f"GameId LIKE '{season}%' AND GameId LIKE '20__03%'"
-        # Include only regular season
-        else:
-            query += f"GameId LIKE '{season}%' AND GameId LIKE '20__02%'"
-    # Dates or multiple season
+    # One season with dates
+    if start_date is not None and end_date is not None:
+        query += f"Date BETWEEN '{start_date}' AND '{end_date}'"
     else:
-        # One season with dates
-        if start_date is not None and end_date is not None:
-            #query += f"""WHERE GameId LIKE '{season}%' AND 
-            #Date BETWEEN {start_date} AND {end_date}"""
-            query += f"Date BETWEEN '{start_date}' AND '{end_date}'"
-            
         # Multiple seasons
-        elif multiple_seasons:
+        if multiple_seasons:
             # Include only playoffs
             if playoffs:
                 query += f"""GameId > {season}020000 AND GameId < 2014020000 AND 
@@ -561,7 +549,7 @@ def add_total_elapsed_time(connection, drop_column=False, pbp_table="mpbp"):
     connection.commit()
 
 
-def extract_season(connection, engine, season, 
+def extract_season(connection, engine, season=None, 
                    start_date=None, end_date=None, 
                    multiple_seasons=False, playoffs=False, pbp_table="mpbp"):
     """
