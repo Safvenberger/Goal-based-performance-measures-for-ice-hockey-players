@@ -123,6 +123,7 @@ def count_occurrences(connection, engine, pbp_table="mpbp"):
     """
     Count total occurrences for each outcome before and after tha goal was 
     scored and store in a data frame before committing to the SQL database.
+    The occurrences are counted from the perspective of the scoring team.
     
     Author: Rasmus Säfvenberg
 
@@ -154,11 +155,11 @@ def count_occurrences(connection, engine, pbp_table="mpbp"):
     	
     # Subset only the goals
     df_goals = df[df["EventType"] == "GOAL"].copy()
-    
+      
     # Occurences prior to goal
     before = df_goals.apply(lambda row: occ_before(df, row.TotalElapsedTime, 
-                                                   row.GD, row.MD, 
-                                                   row.PeriodNumber), axis=1)
+                                                  row.GD, row.MD, 
+                                                  row.PeriodNumber), axis=1)
     print("Finished before occurrences!")
 
     # Get state after goal (i.e. the face-off usually)
@@ -174,12 +175,23 @@ def count_occurrences(connection, engine, pbp_table="mpbp"):
     
     print("Finished after occurrences!")
 
-    # Create occurence data frame with game id and total elapsed time
-    occ_df = df_goals.loc[:, ["GameId", "TotalElapsedTime", "GD", "MD"]].copy().\
-        reset_index(drop=True)
-    	
     # Boolean series of whether the home team scored
     homeTeamScored = df_goals["ScoringTeamId"] == df_goals["HomeTeamId"]
+    
+    # Goal difference from the perspective of the scoring team
+    df_goals.loc[homeTeamScored, "GD_scoring_team"] = df_goals.loc[homeTeamScored, "GD"]
+    df_goals.loc[~homeTeamScored, "GD_scoring_team"] = df_goals.loc[~homeTeamScored, "GDaway"]
+
+    # Manpower difference from the perspective of the scoring team
+    df_goals.loc[homeTeamScored, "MD_scoring_team"] = df_goals.loc[homeTeamScored, "MD"]
+    df_goals.loc[~homeTeamScored, "MD_scoring_team"] = df_goals.loc[~homeTeamScored, "MDaway"]
+    
+    # Create occurence data frame with game id and total elapsed time
+    occ_df = df_goals.loc[:, ["GameId", "TotalElapsedTime", 
+                              "GD_scoring_team", "MD_scoring_team"]].copy().\
+        reset_index(drop=True)
+
+    # Reset index to align with before and after
     homeTeamScored.reset_index(drop=True, inplace=True)
     
     # Remove NA and reorder columns
@@ -204,7 +216,11 @@ def count_occurrences(connection, engine, pbp_table="mpbp"):
             "tie-win_after", "tie-loss_after"]] = after.\
         rename(columns={"loss": "loss_after", "tie-loss": "tie-loss_after", 
                         "tie-win": "tie-win_after", "win": "win_after"})	
-    	
+    
+    # Rename columns
+    occ_df = occ_df.rename(columns={"GD_scoring_team": "GD",
+                                    "MD_scoring_team": "MD"})
+    
     # Commit to SQL
     occ_df.to_sql("occurrences", engine, if_exists='replace', 
     			  chunksize=25000, index=False)
