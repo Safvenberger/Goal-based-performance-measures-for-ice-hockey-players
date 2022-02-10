@@ -211,7 +211,7 @@ def calc_goals(data):
 
 def calc_assists(data):
     """
-    Calculate the total traditional and weighted goals for all
+    Calculate the total traditional and weighted assists for all
     players, grouped by player id.
     
     Author: Rasmus Säfvenberg
@@ -239,13 +239,52 @@ def calc_assists(data):
     # Intialize new columns that means 1 assist per event.
     assists["AssistedGoals"] = 1
     
-    # Calculate number of goals and weighted goals per player
+    # Calculate number of assists and weighted assists per player
     weighted_assists = assists.groupby("PlayerId")[["AssistedGoals", "reward"]].sum().reset_index().\
                           rename(columns={"AssistedGoals": "Assists", 
                                           "reward": "WeightedAssists"}).\
                               sort_values("WeightedAssists", ascending=False)
     return weighted_assists
   
+    
+def calc_first_assists(data):
+    """
+    Calculate the total traditional and weighted first assist for all
+    players, grouped by player id.
+    
+    Author: Rasmus Säfvenberg
+
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        A data frame as retrieved by weighted.get_data()
+
+    Returns
+    -------
+    weighted_first_assists : pandas.DataFrame
+        A data frame with total and weighted first assists per player.
+
+    """
+    
+    # Get required columns
+    first_assists = data[["FirstAssistId", "reward"]].copy()
+    
+    # Convert from wide to long and have each assist (first only) as a row
+    first_assists = first_assists.rename(columns={"FirstAssistId": "AssistId"}).\
+        melt(id_vars="reward").\
+        rename(columns={"value": "PlayerId"}).drop("variable", axis=1)
+    
+    # Intialize new columns that means 1 assist per event.
+    first_assists["AssistedGoals"] = 1
+    
+    # Calculate number of assists and weighted assists per player
+    weighted_first_assists = first_assists.groupby("PlayerId")[["AssistedGoals", "reward"]].\
+        sum().reset_index().rename(columns={"AssistedGoals": "FirstAssists", 
+                                            "reward": "WeightedFirstAssists"}).\
+                              sort_values("WeightedFirstAssists", ascending=False)
+                              
+    return weighted_first_assists
+
 
 def calc_points(goals, assists):
     """
@@ -456,6 +495,9 @@ def create_weighted_metrics(connection, engine, season=None, suffix=""):
     # Calculate assists and add player names + ranks
     assists = add_ranks(add_names(calc_assists(df), connection), "Assists")
     
+    # Calculate first assists and add player names + ranks
+    first_assists = add_ranks(add_names(calc_first_assists(df), connection), "Assists")
+    
     # Calculate points and add player names + ranks
     points = add_ranks(calc_points(goals, assists), "Points")
 
@@ -465,6 +507,7 @@ def create_weighted_metrics(connection, engine, season=None, suffix=""):
     # Add tables to SQL    
     add_to_sql(goals,     f"weighted_goals_ranked{suffix}",     engine)
     add_to_sql(assists,   f"weighted_assists_ranked{suffix}",   engine)
+    add_to_sql(first_assists, f"weighted_first_assists_ranked{suffix}",   engine)
     add_to_sql(points,    f"weighted_points_ranked{suffix}",    engine)
     add_to_sql(plusminus, f"weighted_plusminus_ranked{suffix}", engine)
 

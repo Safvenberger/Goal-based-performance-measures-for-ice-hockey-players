@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# Author: Rasmus Säfvenberg
 
 import pandas as pd
 import numpy as np
@@ -28,7 +29,7 @@ def apply_weighted_reward(season=None, suffix="",
     ----------
     season : integer value of 4 characters (e.g. 2013)
         Selects games from the given season.
-        Valid inputs are 2007 - 2014.
+        Valid inputs are 2007 - 2013.
     suffix : string
         What to append at the end of the table name in the SQL database.
     start_date : integer value of format yyyymmdd
@@ -178,36 +179,48 @@ if __name__ == "__main__":
 
     ######################### --- Full season --- #############################
     # Input arguments
-    season = 2013
+    #season = 2013
     playoffs = False
 
+    
     # Main code    
-    apply_weighted_reward(season=season, suffix=f"{season}", 
-                          create_copy=True,
-                          multiple_seasons=False, playoffs=playoffs) 
+    for season in range(2007, 2014):
+        apply_weighted_reward(season=season, suffix=f"{season}", 
+                              create_copy=True,
+                              multiple_seasons=False, playoffs=playoffs) 
+        
+    ######################### --- Playoffs --- #############################
+    # Input arguments
+    
+    # Main code    
+    for season in range(2007, 2014):
+        apply_weighted_reward(season=season, suffix=f"{season}_playoffs", 
+                              create_copy=True,
+                              multiple_seasons=False, playoffs=True) 
     
     
     #################### --- Partitioned season --- ###########################
     # Input arguments
-    season = 2007
-    n_partitions = 5
+    #season = 2007
+    n_partitions = 10
     
     # Main code
-    partition_dict = partitioned_season(season, n_partitions)
-    for partition in range(2, n_partitions+1): # Skip the full season
-        print(f"Partition: {partition}")
-        for part in partition_dict[partition]:
-            print(f"{season}_{partition}partitions_part{part[-1]}")
-            # Start and end date of the partitions
-            start_date_part = partition_dict[partition][part]["start"]
-            end_date_part = partition_dict[partition][part]["end"]
-            # Compute the reward
-            apply_weighted_reward(season=None,
-                                  suffix=f"{season}_{partition}partitions_part{part[-1]}", 
-                                  start_date=start_date_part, 
-                                  end_date=end_date_part,
-                                  create_copy=True, 
-                                  multiple_seasons=False, playoffs=False)
+    for season in range(2013, 2014):
+        partition_dict = partitioned_season(season, n_partitions)
+        for partition in range(2, n_partitions+1): # Skip the full season
+            print(f"Partition: {partition}")
+            for part in partition_dict[partition]:
+                print(f"{season}_{partition}partitions_part{part[4:]}")
+                # Start and end date of the partitions
+                start_date_part = partition_dict[partition][part]["start"]
+                end_date_part = partition_dict[partition][part]["end"]
+                # Compute the reward
+                apply_weighted_reward(season=None,
+                                      suffix=f"{season}_{partition}partitions_part{part[-1]}", 
+                                      start_date=start_date_part, 
+                                      end_date=end_date_part,
+                                      create_copy=True, 
+                                      multiple_seasons=False, playoffs=False)
         
     
     ##################### --- Multiple seasons --- ############################
@@ -227,22 +240,4 @@ if __name__ == "__main__":
                           suffix=f"season{start_season}_14_evaluated{evaluation_season}", 
                           create_copy=True, multiple_seasons=True,
                           calc_occur=False)
-    
-    
-    
-
-    ### Positional split###
-    ### Not currently used ###
-    # Positional split
-    # positions = [["D"], ["C"], ["L", "R"]]
-
-    # for pos in positions:
-    #     print(f"Position {pos}")
-    #     apply_weighted_reward(season=2013, 
-    #                           suffix=f"positional_{''.join(pos).lower()}", 
-    #                           start_date="20131001", end_date="20140413",
-    #                           create_copy=True,
-    #                           calc_occur=False,
-    #                           position_list=pos)
-        
     
