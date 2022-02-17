@@ -1,23 +1,49 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# Author: Rasmus Säfvenberg
+
 from scipy import stats
+import sys
+sys.path.insert(0, "../Scripts")
 from db import connect_to_db
 import pandas as pd
 import numpy as np
 
-# Connect to the database
-connection = connect_to_db("hockey")
 
-
-def correlation(season, metric, n, connection, 
-                weighted=False, multiple_seasons=False, traditional=False):
+def correlation(season, metric, n, connection, generalize=False,
+                traditional=False, playoffs=False, multiple_seasons=False):
     """
+    Calculate the correlation coefficients (Pearson/Spearman) for a specific
+    number of partitions, n.
 
-    :param metric: Goals, Assists, PlusMinus or Points
-    :param n: {1, 2,3,4,5}
-    :param weighted: whether to do n*value where n is the amount of partitions
-    :param multiple_seasons: whether to take from multiple seasons
-    :param traditional: whether to use traditional or weighted metrics
-    :return: data frame of correlation coefficients
+    Parameters
+    ----------
+    season : integer
+        integer value of 4 characters (e.g. 2013)
+        Selects games from the given season.
+        Valid inputs are 2007 - 2013.
+    metric : string
+        The name of the metric to consider.
+    n : integer
+        What partition to consider (if applicable). Currently used {1, ..., 10}
+    connection : MySQLconnection as created by db.connect_to_db
+        a connection to the SQL database we are working with.
+    generalize : boolean, default is False
+        Whether to generalize the results, i.e. n*partition_value
+    traditional : boolean, default is False
+        Whether to consider the generalization of traditional metrics.
+    playoffs : boolean, default is False
+        Whether to consider only the playoffs
+    multiple_seasons : boolean, default is False
+        Whether to consider multiple seasons worth of data.
+
+    Returns
+    -------
+    corr_df : pd.DataFrame
+        Data frame of correlation coefficients.
+
     """
+    
     # Initialize empty arrays
     pearson = np.zeros(n)
     spearman = np.zeros(n)
@@ -28,18 +54,21 @@ def correlation(season, metric, n, connection,
         if n == 1:
             if multiple_seasons:
                 # Multiple seasons
-                query = f"SELECT * FROM weighted_{metric}_ranked_reg_playoffs"
+                query = f"SELECT * FROM weighted_{metric}_ranked{season}_multiple"
+            elif playoffs:
+                query = f"SELECT * FROM weighted_{metric}_ranked{season}_playoffs"
             else:
-                # One full season (2013-2014)
+                # One full season 
                 query = f"SELECT * FROM weighted_{metric}_ranked{season}"
         else:
             query = f"SELECT * FROM weighted_{metric}_ranked{season}_{n}partitions_part{i}"
         
+        # Read the data from database
         table = pd.read_sql(query, con=connection)
         
-        if weighted:
+        if generalize:
             # Get the full season data
-            full_query = f"SELECT * FROM weighted_{metric}_ranked_full"
+            full_query = f"SELECT * FROM weighted_{metric}_ranked{season}"
             full_table = pd.read_sql(full_query, connection)
             
             # Combine the two tables
@@ -47,6 +76,7 @@ def correlation(season, metric, n, connection,
                                             on=["PlayerId", "PlayerName", "Position"], 
                                             how="left")
             
+            # Replace NA with 0
             merged_table.fillna(0, inplace=True)
             
             if traditional: 
@@ -77,76 +107,112 @@ def correlation(season, metric, n, connection,
         spearman[i-1] = spear
 
     # Create a data frame having the correlation for each iteration and given metric.
-    df = pd.DataFrame([pearson, spearman]).transpose().\
+    corr_df = pd.DataFrame([pearson, spearman]).transpose().\
             rename(columns={0: "Pearson", 1: "Spearman"})
     
-    df.index += 1
+    corr_df.index += 1
     
-    return df
+    return corr_df
 
 
-metric_list = ["Goals", "Assists", "PlusMinus", "Points"]
+def calculate_correlation(metric_list, season_list, n_partitions,
+                          generalize=False, traditional=False, 
+                          playoffs=False):
+    """
+    Calculate the correlations (Pearson/Spearman) for all metrics in 
+    the metric_list.
 
-for metric in metric_list:
-    print(correlation(metric, 1, connection, multiple_seasons=True))
-
-# Standard cor(traditional, weighted)
-for metric in metric_list:
-    for part in range(1, 6):
-        print(f"For {part} partitions, the metric {metric} has correlations\n"
-              f"{correlation(2013, metric, part, connection)}\n")
-
-# Correlation between n*weighted and weighted
-for metric in metric_list:
-    for part in range(1, 6):
-        print(f"For {part} partitions, the metric {metric} has correlations\n"
-              f"{correlation(metric, part, connection, True)}\n")
-
-# Correlation between n*traditional and traditional
-for metric in metric_list:
-    for part in range(1, 6):
-        print(f"For {part} partitions, the metric {metric} has correlations\n"
-              f"{correlation(metric, part, connection, True, traditional=True)}\n")
-
-
-pearson = []
-spearman = []
-metric_loop = []
-for position in ["c", "d", "lr"]:
-    for metric in metric_list:
-        index = metric_list.index(metric)
-        query = f"SELECT * FROM weighted_{metric}_ranked_positional_{position}"
-        table = pd.read_sql(query, con=connection)
-        pear, _ = stats.pearsonr(table[f"{metric}"], table[f"Weighted{metric}"])
-        spear, _ = stats.spearmanr(table[f"{metric}"], table[f"Weighted{metric}"])
-        metric_loop.append(metric + "_" + position)
-        pearson.append(pear)
-        spearman.append(spear)
-
-pd.DataFrame([pearson, spearman], columns=metric_loop).T.rename(columns={0: "Pearson", 1: "Spearman"})
+    Parameters
+    ----------
+    metric_list : list
+        List of all metrics to check.
+    season_list : list
+        List of all season to consider.
+    n_partitions : integer
+       The number of partitions in total.
+    generalize : boolean, default is False
+        Whether to generalize the results, i.e. n*partition_value
+    traditional : boolean, default is False
+        Whether to consider the generalization of traditional metrics.
+    playoffs : boolean, default is False
+        Whether to consider only the playoffs
 
 
+    Returns
+    -------
+    corr : pd.DataFrame
+        Data frame of all correlations.
 
-def summarized(metric, n):
-    results = pd.DataFrame()
-    for i in range(1, n+1):
-        query = f"SELECT * FROM weighted_{metric}_rankedpartition_{n}_part{i}"
-        table = pd.read_sql(query, con=connection)
-        table = table.groupby("PlayerName")[[f"{metric}", f"Weighted{metric}"]].sum().reset_index()
-        results = pd.concat([results, table])
-        results = results.groupby("PlayerName")[[f"{metric}", f"Weighted{metric}"]].sum().reset_index()
-
-    pear, _ = stats.pearsonr(results[f"{metric}"],results[f"Weighted{metric}"])
-
-    spear, _ = stats.spearmanr(results[f"{metric}"],results[f"Weighted{metric}"])
-
-    return pear, spear
-
-
-for metric in metric_list:
-    for part in range(2, 6):
-        print(f"Metric: {metric}, n = {part}, corr = {summarized(metric, part)}")
+    """
+    # Empty dictionary for season and metrics
+    corr = {}
+    # Loop over all seasons
+    for season in season_list:
+        # Empty dictionary for the season
+        corr[season] = {}
+        # Go over all metrics
+        for metric in metric_list:
+            metric_df = pd.DataFrame()
+            for part in range(1, n_partitions+1):
+                # Correlation for each season, metric and partition part
+                metric_df = metric_df.append(
+                    correlation(season, metric, part, connection, 
+                                generalize, traditional, playoffs).\
+                                             assign(Metric=metric, 
+                                                    PartitionSize=part, 
+                                                    Season=season))
+            # Save the metric for the season
+            corr[season][metric] = metric_df.reset_index().\
+                rename(columns={"index": "Part"})
+        # Combine all metric and season data into one data frame per season
+        corr[season] = pd.concat(corr[season])
         
+    # Combine all correlations into one season
+    corr = pd.concat(corr).reset_index(drop=True)
+    
+    return corr
 
 
-# ALSO DO metric from part n * 5 corr with actual metric
+if __name__ == "__main__": 
+    # Connect to the database
+    connection = connect_to_db("hockey")
+    
+    # Define the list of metrics to consider
+    metric_list = ["Goals", "Assists", "First_Assists", "PlusMinus", "Points"]
+    
+    
+    # Full season & partition correlation 
+    corr_trad_GPIV = calculate_correlation(metric_list, 
+                                           season_list=range(2007, 2014),
+                                           n_partitions=10,
+                                           generalize=False, 
+                                           traditional=False, playoffs=False)
+    
+    # Correlation within playoffs
+    corr_playoffs = calculate_correlation(metric_list, 
+                                          season_list=range(2007, 2014),
+                                          n_partitions=1,
+                                          generalize=False, 
+                                          traditional=False, playoffs=True)
+    
+    # Correlation between n*weighted and weighted
+    corr_generalize_GPIV = calculate_correlation(metric_list, 
+                                                 season_list=range(2007, 2014),
+                                                 n_partitions=10,
+                                                 generalize=True, 
+                                                 traditional=False, playoffs=False)
+    
+    # Correlation between n*traditional and traditional
+    corr_generalize_trad = calculate_correlation(metric_list,
+                                                 season_list=range(2007, 2014),
+                                                 n_partitions=10,
+                                                 generalize=True, 
+                                                 traditional=True, playoffs=False)
+    
+    # Save as csv files
+    corr_trad_GPIV.to_csv(      "../Results/corr_trad_GPIV.csv", index=False)
+    corr_playoffs.to_csv(       "../Results/corr_playoffs.csv", index=False)
+    corr_generalize_GPIV.to_csv("../Results/corr_generalize_GPIV.csv", index=False)
+    corr_generalize_trad.to_csv("../Results/corr_generalize_trad.csv", index=False)
+
+

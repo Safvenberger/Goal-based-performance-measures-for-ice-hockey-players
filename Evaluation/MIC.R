@@ -1,201 +1,150 @@
+# Author: Rasmus Säfvenberg
+
+# Import packages
 library(RMySQL)
 library(minerva)
 library(dplyr)
+
+# Create database connection
 db <- dbConnect(MySQL(), 
                 user = 'root', password = 'password', 
                 dbname = 'hockey', host = 'localhost', port = 3306)
 
 
-mic <- function(metric, n, weighted=FALSE, multiple_seasons=FALSE, traditional=FALSE){
+mic <- function(season, metric, n, db, generalize=FALSE, traditional=FALSE,
+                playoffs=FALSE, multiple_seasons=FALSE){
+  ## Calculates the MIC value.
+  ## 
+  ## Input: 
+  ##    season: integer representing the year of the season (4 digits).
+  ##    metric: string; the name of the metric to consider
+  ##    n: the specific partition to consider
+  ##    db: the database connection
+  ##    generalize:  boolean; whether to generalize, i.e. n * partition_size
+  ##    traditional: boolean; whether to consider generalization of traditional metrics.
+  ##    playoffs:    boolean; whether to consider playoffs or not
+  ##    multiple_season:  boolean; whether to consider more than one season
+  ##
+  ## Output:
+  ##    mic_df: data frame of MIC values.
+  
+  # Intialize empty vector 
   mic_vector <- numeric(n)
+  # Go over all partitions 1:n
   for (i in 1:n){
     if(n == 1){
-      query <- paste0("SELECT * FROM weighted_", 
-                      metric, "_ranked_full")
+      if(multiple_seasons){
+        # Multiple seasons
+        query <- paste0("SELECT * FROM weighted_", 
+                        metric, "_ranked", season, "_multiple")
+      }
+      else if(playoffs){
+        # Playoffs
+        query <- paste0("SELECT * FROM weighted_", 
+                        metric, "_ranked", season, "_playoffs")
+      }
+      else {
+        # Full season
+        query <- paste0("SELECT * FROM weighted_", 
+                      metric, "_ranked", season)
+      }
     }
     else {
+      # Partitioned season
       query <- paste0("SELECT * FROM weighted_", 
-                      metric, "_rankedpartition_", n, "_part", i)
+                      metric, "_ranked", season, "_", n, "partitions_part", i)
     }
+    # Retrieve the data
     table <- dbGetQuery(db, query)
     
-    if(weighted){
+    if(generalize){
+      # Get the full season
       full_query <- paste0("SELECT * FROM weighted_", 
-                           metric, "_ranked_full")
+                           metric, "_ranked", season)
       full_table <- dbGetQuery(db, full_query)
       
+      # Combine full season and partitioned season
       merged_table <- merge(full_table, table, 
                             by=c("PlayerId", "PlayerName", "Position"), 
                             all.x=TRUE)
       
+      # Fill NA with 0
       merged_table[is.na(merged_table)] <- 0
       
       if(traditional){
+        # Generalize traditional metrics
         mic_vector[i] <- mine(merged_table[, paste0(metric, ".x")], 
                             n*merged_table[, paste0(metric, ".y")])$MIC
       } else {
+        # Generalize GPIV metrics
         mic_vector[i] <- mine(merged_table[, paste0("Weighted", metric, ".x")], 
                             n*merged_table[, paste0("Weighted", metric, ".y")])$MIC
       }
     }
     else {
+      # Correlation between traditional and GPIV
       mic_vector[i] <- mine(table[, paste0(metric)], 
                             table[, paste0("Weighted", metric)])$MIC
     }
   }
-  return(mic_vector)
+  # Create a data frame
+  mic_df <- data.frame(MIC = mic_vector, Metric = metric, PartitionSize = n, 
+                       Season = season)
+  # Add a column Part to match python output
+  mic_df$Part <- rownames(mic_df)
+  
+  return(mic_df)
 }
 
-metric_list <- c("Goals", "Assists", "PlusMinus", "Points")
-# Multiple seasons
-sapply(metric_list, function(x) mic(x, 1))
-
-
-mic_list <- list()
-for(metric in metric_list){
-  mic_vector <- numeric() 
-  for(part in 1:5){
-    mic_vector <- c(mic_vector, mic(metric, part))
-  }
-  names(mic_vector) <- c(rep(1, 1), rep(2, 2), rep(3, 3), rep(4, 4), rep(5, 5))
-  mic_list[[metric]] <- mic_vector
-}
-
-# Weighted
-mic_list <- list()
-for(metric in metric_list){
-  mic_vector <- numeric() 
-  for(part in 1:5){
-    mic_vector <- c(mic_vector, mic(metric, part, weighted = TRUE))
-  }
-  names(mic_vector) <- c(rep(1, 1), rep(2, 2), rep(3, 3), rep(4, 4), rep(5, 5))
-  mic_list[[metric]] <- mic_vector
-}
-cat(mic_list$Goals)
-
-# Traditional
-mic_list <- list()
-for(metric in metric_list){
-  mic_vector <- numeric() 
-  for(part in 1:5){
-    mic_vector <- c(mic_vector, mic(metric, part, weighted=TRUE, traditional = TRUE))
-  }
-  names(mic_vector) <- c(rep(1, 1), rep(2, 2), rep(3, 3), rep(4, 4), rep(5, 5))
-  mic_list[[metric]] <- mic_vector
-}
-cat(mic_list$Assists)
-
-
-
-
-# # Positional
-# mic_list_pos <- list() 
-# i <- 0
-# for(position in c("c", "d", "f")){
-#   i <- i+1
-#   mic_vector_pos <- numeric() 
-#   for(metric in metric_list){
-#     index <- match(metric, metric_list)
-#     metric_name <- metric_names[index]
-#     query <- paste0("SELECT * FROM weighted_", metric, "_grouped_named_positional_", position, "_ranked")
-#     table <- dbGetQuery(db, query)
-#     mic_value <- mine(table[, paste0(metric_name)], 
-#                       table[, paste0(metric_name, "_w")])$MIC
-#     mic_vector_pos <- c(mic_vector_pos, mic_value)
-#     #  print(mic_vector)
-#   }
-#   names(mic_vector_pos) <- rep(metric_names, times = 1)
-#   mic_list_pos[[i]] <- mic_vector_pos
-# }
-# 
-# mic_list_pos
-
-
-# Re-work this one
-summarized <- function(metric, n){
-  metric_name <- metric
-  metric_name_w <- paste0("Weighted", metric_name)
-  metric_name_dplyr <- enquo(metric_name)
-  metric_name_dplyr_w <- enquo(metric_name_w)
-  results <- data.frame()
-  for (i in 1:n){
-    query <- paste0("SELECT * FROM weighted_", 
-                    metric, "_rankedpartition_", n, "_part", i)
-    table <- dbGetQuery(db, query)
-    table <- table %>% 
-      select(PlayerName, !!metric_name_dplyr, !!metric_name_dplyr_w) %>% 
-      group_by(PlayerName) %>% 
-      summarise(across(everything(), sum)) %>%
-      ungroup()
+calculate_mic <- function(metric_list, season_list, n_partitions,
+                          generalize=FALSE, traditional=FALSE, playoffs=FALSE){
+    ## Calculates the MIC value for all metrics and seasons.
+    ## 
+    ## Input: 
+    ##    metric_list: vector of all metrics to consider.
+    ##    season_list: vector of all seasons to consider.
+    ##    generalize:  boolean; whether to generalize, i.e. n * partition_size
+    ##    traditional: boolean; whether to consider generalization of traditional metrics.
+    ##    playoffs:    boolean; whether to consider playoffs or not
+    ##
+    ## Output:
+    ##    corr_df: data frame of all MIC values.
+  
+    # Loop over all seasons => metrics => 1:partition size
+    corr <- lapply(season_list, function(season){
+      lapply(metric_list, function(metric){
+        lapply(1:n_partitions, function(part) mic(season, metric, part, db, 
+                                                  generalize, traditional, playoffs))
+      })
+    })
+      
+    # Combine the list of lists into a data frame
+    corr_df <- bind_rows(lapply(1:length(corr), function(x) bind_rows(corr[[x]])))
     
-    results <- bind_rows(results, table)
-    results <- results %>% 
-      group_by(PlayerName) %>% 
-      summarise(across(everything(), sum))
-  }
-  results <- as.data.frame(results)
-  mic_value <- mine(results[, paste0(metric_name)], 
-                    results[, paste0("Weighted", metric_name)])$MIC
-
-  return(mic_value)
+    return(corr_df)
 }
 
-mic_list_sum <- list()
-for(metric in metric_list){
-  mic_vector_sum <- numeric() 
-  for(part in 2:5){
-    mic_vector_sum <- c(mic_vector_sum, summarized(metric, part))
-  }
-  #names(mic_vector_sum) <- rep(metric_names, times = 1)
-  mic_list_sum[[metric]] <- mic_vector_sum
-}
+# Specify the metrics to consider
+metric_list <- c("Goals", "Assists", "First_Assists", "PlusMinus", "Points")
 
-mic_list_sum[["Goals"]]
+# Full season & partition correlation 
+mic_trad_GPIV <- calculate_mic(metric_list, 2007:2013, 10,
+                               generalize=FALSE, traditional=FALSE, playoffs=FALSE)
 
+# Correlation within playoffs
+mic_playoffs <- calculate_mic(metric_list, 2007:2013, 1,
+                              generalize=FALSE, traditional=FALSE, playoffs=TRUE)
 
-#### PLOTS ####
-goalPerDate <- read.csv("goalsPerDate.csv")
-nTimesMetric <- readxl::read_excel("Correlations.xlsx", sheet = "PlotData")
+# Correlation between n*weighted and weighted
+mic_generalize_GPIV <- calculate_mic(metric_list, 2007:2013, 10,
+                                    generalize=TRUE, traditional=FALSE, playoffs=FALSE)
 
-library(ggplot2)
-library(dplyr)
-library(tidyr)
-ggplot(goalPerDate, aes(as.factor(Date), gpd, group = 1)) + 
-  geom_path() + theme_minimal() + geom_smooth() + 
-  theme(panel.grid = element_blank(), axis.text.x = element_blank())
+# Correlation between n*traditional and traditional
+mic_generalize_trad <- calculate_mic(metric_list, 2007:2013, 10,
+                                     generalize=TRUE, traditional=TRUE, playoffs=FALSE)
 
-nTimesMetric %>% 
-  filter(Partition != 1) %>% 
-  pivot_longer(-c(Metric, Partition, Weighted), 
-               names_to = "Corr", values_to = "Value") %>% 
-  mutate(Corr = factor(Corr, levels = c("Pearson", "Spearman", "MIC")),
-         Metric = factor(Metric, levels = c("Goals", "Assists", "PlusMinus", "Points"))) %>%
-  #group_by(Metric, Partition, Corr, Weighted) %>% 
-  #mutate(mean_value = mean(Value)) %>% 
-  ggplot(., aes(Partition, Value, fill = factor(Weighted), shape = factor(Weighted))) + 
-  geom_point(#position=position_dodge(width = 0.3), 
-             position=position_dodge(width = 0.5), 
-             alpha = 1, size = 1.7, color = "black") +
-  #geom_line() +
-  #geom_smooth(se=FALSE, fullrange=TRUE, size=1.5,
-  #            #position=position_dodge(width = 0.3)
-  #            position=position_dodge(width = 0)) + 
-  #geom_point(aes(Partition, mean_value), color="red") +
-  facet_grid(Corr~Metric) + theme_bw() + 
-  xlab("Number of partitions") + ylab("Correlation") +
-  scale_fill_manual(name = "", labels = c("Traditional metric", "GPIV metric"),
-                     values = c("#E69F00", "#56B4E9")) +
-  scale_shape_manual(name = "", labels = c("Traditional metric", "GPIV metric"),
-                     values = c(21, 23)) +
-  scale_y_continuous(limits = c(0, 1), expand = c(0, 0)) + 
-  theme(panel.grid.major.x = element_blank(),
-        panel.grid.minor.x = element_blank(),
-        axis.title = element_text(face = "bold", size=14),
-        axis.text = element_text(size=12),
-        legend.position = "top",
-        legend.text = element_text(size=16, vjust=1.0),
-        strip.text = element_text(face = "bold", size=14),
-        panel.spacing = unit(0.8, "lines")
-        ) 
-
-ggsave("corr_plot_732a76.svg", width = 7, height = 4.5)
+# Save as csv files
+write.csv(mic_trad_GPIV,       "./Results/mic_trad_GPIV.csv", row.names = FALSE)
+write.csv(mic_playoffs,        "./Results/mic_playoffs.csv", row.names = FALSE)
+write.csv(mic_generalize_GPIV, "./Results/mic_generalize_GPIV.csv", row.names = FALSE)
+write.csv(mic_generalize_trad, "./Results/mic_generalize_trad.csv", row.names = FALSE)
