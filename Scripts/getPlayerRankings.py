@@ -53,7 +53,7 @@ def get_player_rankings(connection, season: int,
     return player_rankings            
 
 
-def write_to_excel(connection, position: str=None, file_name: str="GPIV"):
+def write_to_excel(connection, position: list=None, file_name: str="GPIV"):
     """
     Create an .xlsx file per metric containing the rankings for all seasons
     sorted by the top GPIV values.
@@ -62,8 +62,8 @@ def write_to_excel(connection, position: str=None, file_name: str="GPIV"):
     ----------
     connection : MySQLconnection as created by db.connect_to_db
         A connection to the SQL database we are working with.
-    position : str, default is None.
-        The position to subset.
+    position : list, default is None.
+        The position(s) to subset.
     file_name : str, default is "GPIV".
         The prefix of the filename to write/overwrite.
     Returns
@@ -94,7 +94,7 @@ def write_to_excel(connection, position: str=None, file_name: str="GPIV"):
         with pd.ExcelWriter(f"../Results/{file_name}-{metric}.xlsx") as writer:
             for season in seasons:
                 # Get the ranking for the given season and metric
-                ranking = get_player_rankings(connection, season, metric)
+                ranking = get_player_rankings(connection, season, metric, position)
 
                 # Special case for the first assists metrics
                 if metric.lower() == "first_assists":
