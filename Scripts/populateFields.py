@@ -7,10 +7,11 @@ from db import connect_to_db, create_db_engine
 
 
 def cut_play_by_play(connection, season=None, start_date=None, end_date=None, 
-                     multiple_seasons=False, playoffs=False,
+                     multiple_parts=False, playoffs=False,
+                     evaluation_season=None, start_date_evaluation=None,
                      pbp_table="mpbp"):
     """
-    Limit the play by play data to fewer season(s).
+    Limit the play by play data to fewer season(s)/smaller parts.
     
     Author: Jon Vik
     Updates by: Rasmus Säfvenberg
@@ -28,12 +29,18 @@ def cut_play_by_play(connection, season=None, start_date=None, end_date=None,
     end_date : integer value of format yyyymmdd
         The end date we are interested in examining.
         The default is None.
-    multiple_seasons : boolean
-        Whether to start from the given season, specified in "season".
+    multiple_parts : boolean
+        Whether to consider multiple parts (seasons/partitions) worth of data.
         The default is False.
     playoffs : boolean
         To consider only playoffs or regular season.
         The default is False.
+    evaluation_season : integer value of 4 characters (e.g. 2013)
+        The season to evaluate the data specified in season on.
+        The default is None.
+    start_date_evaluation : integer value of format yyyymmdd
+        The date to start the valiation set at. Will be between
+        start_date_evaluation and end_date.
     pbp_table : string.
         Name of the play by play SQL table to be altered. The default is "mpbp".
 
@@ -72,33 +79,42 @@ def cut_play_by_play(connection, season=None, start_date=None, end_date=None,
     # Copy data from the pre-existing play by play table for the given season
     # and dates
     query = f"""INSERT INTO {pbp_table}
-    SELECT *
-    FROM pbp_view WHERE """
+                SELECT *
+                FROM pbp_view WHERE """
     
-    # One season with dates
-    if start_date is not None and end_date is not None:
-        query += f"Date BETWEEN '{start_date}' AND '{end_date}'"
+    # If playoffs are to be examined
+    if playoffs: 
+        playoffs_query = " AND GameId LIKE '20__03%'"
     else:
-        # Multiple seasons
-        if multiple_seasons:
-            # Include only playoffs
-            if playoffs:
-                query += f"""GameId > {season}020000 AND GameId < 2014020000 AND 
-                GameId LIKE '20__03%'"""
-            # Include only regular season
+        playoffs_query = " AND GameId LIKE '20__02%'"
+    
+    # Matches between two dates
+    if start_date is not None and end_date is not None:
+        if multiple_parts:
+            if start_date_evaluation is not None:
+                # start_date to start_date_evaluation
+                query += f"Date BETWEEN '{start_date}' AND '{int(start_date_evaluation)-1}'"
+            else: 
+                # start_date_evaluation to end_date
+                query += f"Date BETWEEN '{start_date}' AND '{end_date}'"
+        else:
+            query += f"Date BETWEEN '{start_date}' AND '{end_date}'"
+    else:
+        # Multiple parts/seasons
+        if multiple_parts:
+            if evaluation_season is not None:
+                # all seasons until evaluation season
+                query += f"""GameId > {season}020000 AND 
+                             GameId < {evaluation_season}020000""" + playoffs_query
             else:
-                query += f"""GameId > {season}020000 AND GameId < 2014020000 AND 
-                GameId LIKE '20__02%'"""
-        elif season is not None: 
-            # Include only playoffs
-            if playoffs:
-                query += f"GameId LIKE '{season}%' AND GameId LIKE '20__03%'"
-            # Include only regular season
-            else:
-                query += f"GameId LIKE '{season}%' AND GameId LIKE '20__02%'"
+                # full evaluation_season
+                query += f"""GameId > {season}020000 AND 
+                             GameId < {season+1}020000""" + playoffs_query 
+        elif not multiple_parts and season is not None: 
+            query += f"GameId LIKE '{season}%'" + playoffs_query
         # Get all the data
         else: 
-            query += "1=1"
+            query += "1=1"    
     cursor.execute(query)
 
     # Add new columns to be filled later
@@ -551,7 +567,9 @@ def add_total_elapsed_time(connection, drop_column=False, pbp_table="mpbp"):
 
 def extract_season(connection, engine, season=None, 
                    start_date=None, end_date=None, 
-                   multiple_seasons=False, playoffs=False, pbp_table="mpbp"):
+                   multiple_parts=False, playoffs=False, 
+                   evaluation_season=None, start_date_evaluation=None, 
+                   pbp_table="mpbp"):
     """
     Extract the season and all required data for the given season.
     
@@ -567,23 +585,22 @@ def extract_season(connection, engine, season=None,
     season : integer value of 4 characters (e.g. 2013)
         Selects games from the given season.
         Valid inputs are 2007 - 2014.
-    
     start_date : integer value of format yyyymmdd
         The start date we are interested in examining.
     end_date : integer value of format yyyymmdd
         The end date we are interested in examining.
-    get_dates : boolean
-        If we want to scrape dates from hockey-reference.com. 
-        The default is False.
-    add_dates : boolean
-        If we want to create an SQL table 'match_date' with game dates. 
-        The default is False.
-    multiple_seasons : boolean
-        Whether to start from the given season, specified in "season".
+    multiple_parts : boolean
+        Whether to consider multiple parts (seasons/partitions) worth of data.
         The default is False.
     playoffs : boolean
         To consider only playoffs or regular season.
         The default is False.
+    evaluation_season : integer value of 4 characters (e.g. 2013)
+        The season to evaluate the data specified in season on.
+        The default is None.
+    start_date_evaluation : integer value of format yyyymmdd
+        The date to start the valiation set at. Will be between
+        start_date_evaluation and end_date.
     pbp_table : string.
         Name of the play by play SQL table to be used. 
         The default is "mpbp".
@@ -597,31 +614,87 @@ def extract_season(connection, engine, season=None,
     #print("Creating game table...")
     # create_game(connection, season)
         
-    #print("Cutting Play by play...")
-    cut_play_by_play(connection, season, start_date, end_date, multiple_seasons,
-                     playoffs)
-    #print("Adding scoring team id...")
-    add_scoring_team_id(connection)
-    #print("Adding Manpower...")
-    add_manpower(connection)
-    #print("Adding GF, GA...")
-    add_gf_and_ga_fast(connection)
-    #print("Removing Shootouts...")
-    remove_shootout_goals(connection)
-    #print("Adding outcome...")
-    add_outcome_to_pbp_fast(connection, engine)
-    #print("Adding GD MD...")
-    add_goal_mp_differential(connection)
-    #print("Adding total elapsed time (s)...")
-    add_total_elapsed_time(connection)
-    print("Fields have been populated!")
+    # Evaluate data from multiple seasons
+    if multiple_parts:    
+        n_tables = 2
+    else:
+        n_tables = 1
+        
+    # If we have multiple parts
+    multiple_season = False
+    # If we have multiple full seasons
+    if evaluation_season is not None:
+        multiple_season = True
+        
+    # "Loop" over the amount of tables to create; 2 if to be evaluated
+    for table_count in range(n_tables):
+        if table_count == 1:
+            # Full seasons
+            if multiple_season:
+                if evaluation_season is not None:
+                    season = evaluation_season
+                    pbp_table += "_eval"
+                    evaluation_season = None
+                else: 
+                    evaluation_season = season
+            # Partitions
+            else:
+                if start_date_evaluation is not None:
+                    start_date = start_date_evaluation
+                    pbp_table += "_eval"
+                    start_date_evaluation = None
+                else: 
+                    start_date_evaluation = start_date
+                
+        # Cut all data into smaller parts
+        cut_play_by_play(connection, season, start_date, end_date, multiple_parts,
+                         playoffs, evaluation_season, start_date_evaluation,
+                         pbp_table=pbp_table)
+        
+        # Add the id of the scoring team
+        add_scoring_team_id(connection, pbp_table=pbp_table)
+        
+        # Add manpower values
+        add_manpower(connection, pbp_table=pbp_table)
+        
+        # Add goals for and against
+        add_gf_and_ga_fast(connection, pbp_table=pbp_table)
+        
+        # Remove shootout goals
+        remove_shootout_goals(connection, pbp_table=pbp_table)
+        
+        # Add outcomes to the play-by-play table
+        add_outcome_to_pbp_fast(connection, engine, pbp_table=pbp_table)
+        
+        # Add goal and manpower differences
+        add_goal_mp_differential(connection, pbp_table=pbp_table)
+        
+        # Add the total elapsed time in-game
+        add_total_elapsed_time(connection, pbp_table=pbp_table)
+        print("Fields have been populated!")
 
 
 if __name__ == "__main__":
-    season = 2012
     connection = connect_to_db("hockey")
     engine = create_db_engine("hockey")
-    extract_season(connection, engine, season, 
-                   start_date="20131001", end_date="20140713", 
-                   multiple_seasons=False, playoffs=False)
+    
+    # # Check one full season
+    season = 2012
+    # extract_season(connection, engine, season, 
+    #                multiple_parts=False, playoffs=False)
 
+    # # One season between dates
+    # extract_season(connection, engine, 
+    #                start_date="20131001", end_date="20140713", 
+    #                multiple_parts=False, playoffs=False)
+    
+    # Multiple seasons
+    # extract_season(connection, engine, season, 
+    #                multiple_parts=True, playoffs=True,
+    #                evaluation_season=2013)
+    
+    # Multiple parts within a season
+    extract_season(connection, engine, 
+                   start_date="20140201", end_date="20140713", 
+                   multiple_parts=True, playoffs=False,
+                   start_date_evaluation="20140418")

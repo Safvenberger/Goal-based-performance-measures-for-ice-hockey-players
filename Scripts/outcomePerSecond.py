@@ -119,7 +119,8 @@ def occ_after(df, TotalElapsedTime, GD, MD, PeriodNumber):
     return after
 
 
-def count_occurrences(connection, engine, pbp_table="mpbp"):
+def count_occurrences(connection, engine, multiple_parts=False,
+                      pbp_table="mpbp"):
     """
     Count total occurrences for each outcome before and after tha goal was 
     scored and store in a data frame before committing to the SQL database.
@@ -133,6 +134,9 @@ def count_occurrences(connection, engine, pbp_table="mpbp"):
         a connection to the SQL database we are working with.
     engine : sqlalchemy enginge as creadted by db.create_db_engine
         an engine object such that we can use pd.to_sql() function.
+    multiple_parts : boolean
+        Whether to consider multiple seasons worth of data.
+        The default is False.
     pbp_table : string.
         Name of the play by play SQL table to be used. 
         The default is "mpbp".
@@ -142,6 +146,11 @@ def count_occurrences(connection, engine, pbp_table="mpbp"):
     None. The related changes are instead pushed to the SQL database.
 
     """
+    # If the data is to be evaluated on another season/data set
+    if multiple_parts:
+        original_pbp_table = pbp_table
+        pbp_table += "_eval"
+        
     # Query to retrieve all the needed data from the play by play table
     query = f"""SELECT Outcome, OutcomeAway, GameId, HomeTeamId, AwayTeamId, 
                 ScoringTeamId, EventNumber, EventType, PeriodNumber, TotalElapsedTime, 
@@ -155,18 +164,31 @@ def count_occurrences(connection, engine, pbp_table="mpbp"):
     	
     # Subset only the goals
     df_goals = df[df["EventType"] == "GOAL"].copy()
-      
+
+    # If the data is to be evaluated on another season/data set
+    if multiple_parts:
+        query = query.replace(f"{pbp_table}", f"{original_pbp_table}")
+        df_data = df.copy(deep=True)
+        df = pd.read_sql(query, con=connection)
+    
     # Occurences prior to goal
     before = df_goals.apply(lambda row: occ_before(df, row.TotalElapsedTime, 
-                                                  row.GD, row.MD, 
-                                                  row.PeriodNumber), axis=1)
+                                                   row.GD, row.MD, 
+                                                   row.PeriodNumber), axis=1)
     print("Finished before occurrences!")
 
     # Get state after goal (i.e. the face-off usually)
     state_after = pd.DataFrame()
     for row in df_goals.itertuples(index=False):
-    	state_after = pd.concat([state_after, df[(df["GameId"] == row.GameId) & 
-                                              (df["EventNumber"] == row.EventNumber+1)]])
+        if multiple_parts:
+            state_after = pd.concat([state_after, 
+                                     df_data[(df_data["GameId"] == row.GameId) & 
+                                             (df_data["EventNumber"] == row.EventNumber+1)]])
+    
+        else:
+            state_after = pd.concat([state_after, 
+                                     df[(df["GameId"] == row.GameId) & 
+                                        (df["EventNumber"] == row.EventNumber+1)]])
     
     # Occurences after goal
     after = state_after.apply(lambda row: occ_after(df, row.TotalElapsedTime, 
@@ -229,7 +251,7 @@ def count_occurrences(connection, engine, pbp_table="mpbp"):
 if __name__ == "__main__":
     connection = connect_to_db("hockey")
     engine = create_db_engine("hockey")
-    count_occurrences(connection, engine)
+    count_occurrences(connection, engine, multiple_parts=True)
 
 
 

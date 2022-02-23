@@ -10,7 +10,8 @@ from populateFields import extract_season
 from outcomePerSecond import count_occurrences
 from reward import apply_reward, create_table_copy
 from weighted import create_weighted_metrics
-from matchlogsScraper import check_table_exists, add_gamelogs_to_db, merge_id_and_date, create_pbp_view
+from matchlogsScraper import check_table_exists, add_gamelogs_to_db, \
+    merge_id_and_date, create_pbp_view
 
 
 def apply_weighted_reward(season=None, suffix="", 
@@ -18,8 +19,8 @@ def apply_weighted_reward(season=None, suffix="",
                           create_copy=True, 
                           calc_occur=True,
                           position_list=[],
-                          multiple_seasons=False,
-                          playoffs=False
+                          multiple_parts=False, playoffs=False,
+                          evaluation_season=None, start_date_evaluation=None
                           ):
     """
     Extract the season, calculate occurrences, apply the reward function and 
@@ -45,12 +46,18 @@ def apply_weighted_reward(season=None, suffix="",
     position_list : list
         A list of position(s) to calculate reward for.
         Default is an empty list (i.e. all positions).
-    multiple_seasons : boolean
-        Whether to start from the given season, specified in "season".
+    multiple_parts : boolean
+        Whether to consider multiple seasons worth of data.
         The default is False.
     playoffs : boolean
         To consider only playoffs or regular season.
         The default is False.
+    evaluation_season : integer value of 4 characters (e.g. 2013)
+        The season to evaluate the data specified in season on.
+        The default is None.
+    start_date_evaluation : integer value of format yyyymmdd
+        The date to start the valiation set at. Will be between
+        start_date_evaluation and end_date.
     
     Returns
     -------
@@ -86,12 +93,13 @@ def apply_weighted_reward(season=None, suffix="",
     if calc_occur:
         # Extract the season
         extract_season(connection, engine, season, 
-                       start_date=start_date, end_date=end_date, 
-                       multiple_seasons=multiple_seasons, playoffs=playoffs)
+                       start_date, end_date, 
+                       multiple_parts, playoffs,
+                       evaluation_season, start_date_evaluation)
     
         print("Counting occurrences...")
         # Count occurrences
-        count_occurrences(connection, engine)
+        count_occurrences(connection, engine, multiple_parts)
         
     print("Applying reward...")
     # Apply the reward function
@@ -177,67 +185,77 @@ def partitioned_season(season, n_partitions):
 if __name__ == "__main__":
     print("---Started execution---")
 
-    ######################### --- Full season --- #############################
-    # Input arguments
-    #season = 2013
-    playoffs = False
+    ### Input arguments
+    full_season = False
+    playoffs_seasons = False
+    partitioned_seasons = False
+    multiple_seasons = False
+    multiple_parts = False
 
-    
-    # Main code    
-    for season in range(2007, 2014):
-        apply_weighted_reward(season=season, suffix=f"{season}", 
-                              create_copy=True,
-                              multiple_seasons=False, playoffs=playoffs) 
-        
+    ######################### --- Full season --- #############################
+    if full_season:
+        # Main code    
+        for season in range(2007, 2014):
+            apply_weighted_reward(season=season, suffix=f"{season}", 
+                                  create_copy=True,
+                                  multiple_parts=False, playoffs=False) 
+            
     ######################### --- Playoffs --- #############################
-    # Input arguments
-    
-    # Main code    
-    for season in range(2007, 2014):
-        apply_weighted_reward(season=season, suffix=f"{season}_playoffs", 
-                              create_copy=True,
-                              multiple_seasons=False, playoffs=True) 
-    
+    if playoffs_seasons:
+        # Main code    
+        for season in range(2007, 2014):
+            apply_weighted_reward(season=season, suffix=f"{season}_playoffs", 
+                                  create_copy=True,
+                                  multiple_parts=False, playoffs=True) 
+        
     
     #################### --- Partitioned season --- ###########################
-    # Input arguments
-    #season = 2007
-    n_partitions = 10
-    
-    # Main code
-    for season in range(2013, 2014):
-        partition_dict = partitioned_season(season, n_partitions)
-        for partition in range(2, n_partitions+1): # Skip the full season
-            print(f"Partition: {partition}")
-            for part in partition_dict[partition]:
-                print(f"{season}_{partition}partitions_part{part[4:]}")
-                # Start and end date of the partitions
-                start_date_part = partition_dict[partition][part]["start"]
-                end_date_part = partition_dict[partition][part]["end"]
-                # Compute the reward
-                apply_weighted_reward(season=None,
-                                      suffix=f"{season}_{partition}partitions_part{part[-1]}", 
-                                      start_date=start_date_part, 
-                                      end_date=end_date_part,
-                                      create_copy=True, 
-                                      multiple_seasons=False, playoffs=False)
+    if partitioned_seasons:
+        # Input arguments
+        n_partitions = 10
         
+        # Main code
+        for season in range(2013, 2014):
+            partition_dict = partitioned_season(season, n_partitions)
+            for partition in range(2, n_partitions+1): # Skip the full season
+                print(f"Partition: {partition}")
+                for part in partition_dict[partition]:
+                    print(f"{season}_{partition}partitions_part{part[4:]}")
+                    # Start and end date of the partitions
+                    start_date_part = partition_dict[partition][part]["start"]
+                    end_date_part = partition_dict[partition][part]["end"]
+                    # Compute the reward
+                    apply_weighted_reward(season=None,
+                                          suffix=f"{season}_{partition}partitions_part{part[-1]}", 
+                                          start_date=start_date_part, 
+                                          end_date=end_date_part,
+                                          create_copy=True, 
+                                          multiple_parts=False, playoffs=False)
+            
     
-    ##################### --- Multiple seasons --- ############################
-    # Input arguments
-    start_season = 2012
-    evaluation_season = 2013
-    
-    # Use data from multiple seasons and count the occurrences
-    apply_weighted_reward(season=start_season, suffix=f"season{start_season}_14", 
-                          create_copy=True, multiple_seasons=True,
-                          calc_occur=True
-                          ) 
-    
-    # Apply reward for 2013, i.e. use counts from multiple season but only 
-    # calculate/apply the reward for one season.
-    apply_weighted_reward(season=evaluation_season, 
-                          suffix=f"season{start_season}_14_evaluated{evaluation_season}", 
-                          create_copy=True, multiple_seasons=True,
-                          calc_occur=False)
-    
+    ##################### --- Multiple parts --- ############################
+    # Multiple seasons
+    if multiple_seasons:
+        # Input arguments
+        start_season = 2012
+        evaluation_season = 2013
+        
+        # Main code
+        apply_weighted_reward(season=start_season, 
+                              suffix=f"season{start_season}_{evaluation_season}", 
+                              create_copy=True, multiple_parts=True,
+                              evaluation_season=evaluation_season) 
+        
+    # Multiple parts within a season
+    if multiple_parts:
+        # Input arguments
+        start_date = 20131001
+        end_date = 20140713
+        start_date_evaluation = 20140418
+        
+        # Main code
+        apply_weighted_reward(suffix=f"{start_date}_{end_date}_{start_date_evaluation}_eval",
+                              start_date=start_date, end_date=end_date,
+                              create_copy=True, multiple_parts=True,
+                              start_date_evaluation=start_date_evaluation)
+        
