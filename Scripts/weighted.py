@@ -6,7 +6,7 @@ from db import connect_to_db, create_db_engine
 import numpy as np
 
 
-def get_data(connection, season=None, pbp_table="mpbp"):
+def get_data(connection, season=None, multiple_parts=False, pbp_table="mpbp"):
     """
     Extract the needed data from the pbp, event_goal and reward tables.
 
@@ -20,7 +20,10 @@ def get_data(connection, season=None, pbp_table="mpbp"):
     season : integer value of 4 characters (e.g. 2013)
         Selects games from the given season.
         Valid inputs are 2007 - 2014.
-    pbp_table : string
+    multiple_parts : boolean
+        Whether to consider multiple seasons worth of data.
+        The default is False.
+    pbp_table : string.
         Name of the play by play SQL table to be used. 
         The default is "mpbp".
         
@@ -31,7 +34,7 @@ def get_data(connection, season=None, pbp_table="mpbp"):
         and players on the ice during the goal.
 
     """
-    
+        
     # Specify the amount of players in database for each team
     HOMEPLAYERS = ['HomePlayer{}'.format(n) for n in range(1, 10)]
     AWAYPLAYERS = ['AwayPlayer{}'.format(n) for n in range(1, 10)]
@@ -461,7 +464,8 @@ def add_to_sql(df, table_name, engine):
               chunksize=25000, index=False)
 
 
-def create_weighted_metrics(connection, engine, season=None, suffix=""):
+def create_weighted_metrics(connection, engine, season=None, suffix="",
+                            multiple_parts=False, pbp_table="mpbp"):
     """
     Create the weighted metrics for the given season and add them to the 
     SQL database.
@@ -485,9 +489,12 @@ def create_weighted_metrics(connection, engine, season=None, suffix=""):
     None. The related changes are instead pushed to the SQL database.
 
     """
-
+    # If the data is to be evaluated on another season/data set
+    if multiple_parts:
+        pbp_table += "_eval"
+        
     # Get the data with weighted reward
-    df = get_data(connection, season)
+    df = get_data(connection, season, multiple_parts, pbp_table)
     
     # Calculate goals and add player names + ranks
     goals = add_ranks(add_names(calc_goals(df), connection), "Goals")
@@ -496,7 +503,7 @@ def create_weighted_metrics(connection, engine, season=None, suffix=""):
     assists = add_ranks(add_names(calc_assists(df), connection), "Assists")
     
     # Calculate first assists and add player names + ranks
-    first_assists = add_ranks(add_names(calc_first_assists(df), connection), "Assists")
+    first_assists = add_ranks(add_names(calc_first_assists(df), connection), "FirstAssists")
     
     # Calculate points and add player names + ranks
     points = add_ranks(calc_points(goals, assists), "Points")
@@ -521,7 +528,7 @@ if __name__ == '__main__':
     engine = create_db_engine("hockey")
         
     # Get the data with weighted reward
-    df = get_data(connection, season)
+    df = get_data(connection, season, multiple_parts=False)
     
     # Calculate goals and add player names + ranks
     goals = add_ranks(add_names(calc_goals(df), connection), "Goals")

@@ -168,7 +168,7 @@ def count_occurrences(connection, engine, multiple_parts=False,
     # If the data is to be evaluated on another season/data set
     if multiple_parts:
         query = query.replace(f"{pbp_table}", f"{original_pbp_table}")
-        df_data = df.copy(deep=True)
+        df_eval = df.copy(deep=True)
         df = pd.read_sql(query, con=connection)
     
     # Occurences prior to goal
@@ -182,8 +182,8 @@ def count_occurrences(connection, engine, multiple_parts=False,
     for row in df_goals.itertuples(index=False):
         if multiple_parts:
             state_after = pd.concat([state_after, 
-                                     df_data[(df_data["GameId"] == row.GameId) & 
-                                             (df_data["EventNumber"] == row.EventNumber+1)]])
+                                     df_eval[(df_eval["GameId"] == row.GameId) & 
+                                             (df_eval["EventNumber"] == row.EventNumber+1)]])
     
         else:
             state_after = pd.concat([state_after, 

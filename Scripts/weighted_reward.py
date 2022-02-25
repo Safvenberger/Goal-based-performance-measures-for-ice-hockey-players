@@ -111,7 +111,8 @@ def apply_weighted_reward(season=None, suffix="",
     
     print("Creating weighted metrics...")
     # Calculate and create the weighted metrics and push to SQL
-    create_weighted_metrics(connection, engine, season, suffix)
+    create_weighted_metrics(connection, engine, season, suffix,
+                            multiple_parts)
     
     # End of execution
     time_end = perf_counter()
@@ -189,7 +190,7 @@ if __name__ == "__main__":
     full_season = False
     playoffs_seasons = False
     partitioned_seasons = False
-    multiple_seasons = False
+    multiple_seasons = True
     multiple_parts = False
 
     ######################### --- Full season --- #############################
@@ -237,14 +238,21 @@ if __name__ == "__main__":
     # Multiple seasons
     if multiple_seasons:
         # Input arguments
-        start_season = 2012
+        start_season = 2007
         evaluation_season = 2013
         
-        # Main code
+        # Main code - Full seasons
         apply_weighted_reward(season=start_season, 
-                              suffix=f"season{start_season}_{evaluation_season}", 
+                              suffix=f"{start_season}_{evaluation_season}", 
                               create_copy=True, multiple_parts=True,
-                              evaluation_season=evaluation_season) 
+                              playoffs=False, evaluation_season=evaluation_season) 
+        
+        # Note to self: Fix table names for 2011-2013 and 2012-2013
+        # Main code - playoffs
+        apply_weighted_reward(season=start_season, 
+                              suffix=f"{start_season}_{evaluation_season}_playoffs", 
+                              create_copy=True, multiple_parts=True,
+                              playoffs=True, evaluation_season=evaluation_season) 
         
     # Multiple parts within a season
     if multiple_parts:
