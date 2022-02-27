@@ -61,8 +61,8 @@ def corr_to_excel(file_name: str="correlations"):
     files = os.listdir("../Results")
     
     # Keep only the files regarding correlation
-    files = [corr_file for corr_file in files if corr_file.startswith("corr_") or
-             corr_file.startswith("mic_")]
+    files = [corr_file for corr_file in files if (corr_file.startswith("corr_") or
+             corr_file.startswith("mic_")) and corr_file.endswith(".csv")]
     
     # Create a xlsxwriter object
     with pd.ExcelWriter(f"../Results/{file_name}.xlsx") as writer:
@@ -76,6 +76,15 @@ def corr_to_excel(file_name: str="correlations"):
                 
                 # Replace trad with traditional
                 sheet_name = re.sub("trad", "traditional", sheet_name)
+                
+                # Replace mult with multiple
+                sheet_name = re.sub("mult", "multiple", sheet_name)
+                
+                # Replace reg with regular season
+                sheet_name = re.sub("reg", "regular season", sheet_name)
+                
+                # Replace play with playoffs
+                sheet_name = re.sub("play$", "playoffs", sheet_name)
                 
                 # Remove leading underscores
                 sheet_name = re.sub("^_", "", sheet_name)

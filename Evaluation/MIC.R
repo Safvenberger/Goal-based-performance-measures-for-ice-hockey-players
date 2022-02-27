@@ -11,8 +11,63 @@ db <- dbConnect(MySQL(),
                 dbname = 'hockey', host = 'localhost', port = 3306)
 
 
+get_table_names <- function(db){
+  # Get the name of all tables with data of interest
+  table_query <- "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES
+                  WHERE TABLE_TYPE = 'BASE TABLE' AND TABLE_SCHEMA = 'hockey' AND 
+                  Table_Name LIKE "
+  
+  # Create a data frame of all table names for full seasons (and multiple)
+  full_table_names <- dbGetQuery(db, paste0(table_query, "'weighted%20__'"))
+  
+  # Create a data frame of all table names for multiple
+  mult_table_names <- dbGetQuery(db, paste0(table_query, "'weighted%20__%20__%'"))
+  
+  # Unique table names of multiple seasons
+  unique_mult <- unique(gsub("_playoffs", "", mult_table_names$TABLE_NAME))
+  
+  # Full season tables (regular seasons)
+  full_table_names <- full_table_names[!(full_table_names$TABLE_NAME %in% unique_mult), ,drop=FALSE]
+  
+  # Full season tables (playoffs)
+  full_playoff_table_names <- dbGetQuery(db, paste0(table_query, "'weighted%20__%_playoffs'"))
+  mult_playoffs <- (full_playoff_table_names$TABLE_NAME %in% mult_table_names$TABLE_NAME)
+  full_playoff_table_names <- full_playoff_table_names[!mult_playoffs, ,drop=FALSE]
+  
+  # Combine regular season and playoff table names
+  full_table_names <- bind_rows(full_table_names, full_playoff_table_names) %>% arrange("TABLE_NAME")
+  
+  # Names of partitioned seasons
+  part_table_names <- dbGetQuery(db, paste0(table_query, "'weighted%20__%_part%'"))
+  # Extract the season
+  part_table_names["season"] <- regmatches(part_table_names$TABLE_NAME, 
+                                           regexpr("(?<=ranked)(\\d+)", 
+                                                   part_table_names$TABLE_NAME, 
+                                                   perl=TRUE)) %>% as.integer()
+  
+  # Extract the partition size
+  part_table_names["partition_size"] <- regmatches(part_table_names$TABLE_NAME, 
+                                                   regexpr("(\\d+)(?=partitions)", 
+                                                           part_table_names$TABLE_NAME, 
+                                                           perl=TRUE)) %>% as.integer()
+  # Extract the partition value
+  part_table_names["partition"] <- regmatches(part_table_names$TABLE_NAME, 
+                                              regexpr("(?<=part)(\\d+)", 
+                                                      part_table_names$TABLE_NAME, 
+                                                      perl=TRUE)) %>% as.integer()
+  # Sort values in logical order
+  part_table_names <- part_table_names %>% arrange(season, partition_size, partition)
+
+  return(list(full_table_names = full_table_names, 
+              mult_table_names = mult_table_names, 
+              part_table_names = part_table_names))
+  
+}
+
+
 mic <- function(season, metric, n, db, generalize=FALSE, traditional=FALSE,
-                playoffs=FALSE, multiple_seasons=FALSE){
+                playoffs=FALSE, multiple=FALSE, partitioned=FALSE,
+                evaluation_start=NA, evaluation_end=NA){
   ## Calculates the MIC value.
   ## 
   ## Input: 
@@ -23,45 +78,75 @@ mic <- function(season, metric, n, db, generalize=FALSE, traditional=FALSE,
   ##    generalize:  boolean; whether to generalize, i.e. n * partition_size
   ##    traditional: boolean; whether to consider generalization of traditional metrics.
   ##    playoffs:    boolean; whether to consider playoffs or not
-  ##    multiple_season:  boolean; whether to consider more than one season
+  ##    multiple:    boolean; whether to consider more than one season/part
+  ##    partitioned: boolean; whether to consider partitions
+  ##    evaluation_start:  integer; the part on which the occurrences were counted. ("Training data")
+  ##    evaluation_end:  integer; the part on which the evaluation takes place. ("Test data")
   ##
   ## Output:
   ##    mic_df: data frame of MIC values.
   
+  
+  if(multiple & partitioned){
+    stop("Only one of multiple or partitioned can be chosen at a time.")
+  }
+  
+  # Get all table names
+  table_names <- get_table_names(db)
+  full_tables <- table_names$full_table_names
+  multiple_tables <- table_names$mult_table_names
+  partitioned_tables <- table_names$part_table_names 
+  
+  # If no partitions should be consider, this is a fail-safe
+  if(!partitioned){
+    n <- 1
+  }
+  
+  if(playoffs){
+    play_table <- "_playoffs" 
+  }
+  else {
+    play_table <- ""
+  }
   # Intialize empty vector 
   mic_vector <- numeric(n)
+  
   # Go over all partitions 1:n
   for (i in 1:n){
     if(n == 1){
-      if(multiple_seasons){
-        # Multiple seasons
-        query <- paste0("SELECT * FROM weighted_", 
-                        metric, "_ranked", season, "_multiple")
-      }
-      else if(playoffs){
-        # Playoffs
-        query <- paste0("SELECT * FROM weighted_", 
-                        metric, "_ranked", season, "_playoffs")
+      if(multiple){
+        # Multiple season/parts
+        idx <- grepl(paste0(evaluation_start, "_", evaluation_end, play_table, "$"), 
+                     multiple_tables$TABLE_NAME)
+        metric_idx <- grepl(tolower(paste0(metric)), multiple_tables$TABLE_NAME)
+        table_name <- multiple_tables[idx & metric_idx, ][1]
       }
       else {
-        # Full season
-        query <- paste0("SELECT * FROM weighted_", 
-                      metric, "_ranked", season)
+        # One full season
+        idx <- grepl(paste0(season, play_table, "$"), 
+                     full_tables$TABLE_NAME)
+        metric_idx <- grepl(tolower(paste0(metric)), full_tables$TABLE_NAME)
+        table_name <- full_tables[idx & metric_idx, ][1]
       }
     }
     else {
-      # Partitioned season
-      query <- paste0("SELECT * FROM weighted_", 
-                      metric, "_ranked", season, "_", n, "partitions_part", i)
+      # Partitions
+      idx <- grepl(paste0(season, "_", n, "partitions_part", i), 
+                   partitioned_tables$TABLE_NAME)
+      metric_idx <- grepl(tolower(paste0(metric)), partitioned_tables$TABLE_NAME)
+      table_name <- partitioned_tables[idx & metric_idx, ][1]
     }
     # Retrieve the data
-    table <- dbGetQuery(db, query)
+    table <- dbGetQuery(db, paste0("SELECT * FROM ", table_name))
     
     if(generalize){
       # Get the full season
-      full_query <- paste0("SELECT * FROM weighted_", 
-                           metric, "_ranked", season)
-      full_table <- dbGetQuery(db, full_query)
+      idx <- grepl(paste0(season, play_table, "$"), 
+                   full_tables$TABLE_NAME)
+      metric_idx <- grepl(tolower(paste0(metric)), full_tables$TABLE_NAME)
+      full_table_name <- full_tables[idx & metric_idx, ][1]
+      
+      full_table <- dbGetQuery(db, paste0("SELECT * FROM ", full_table_name))
       
       # Combine full season and partitioned season
       merged_table <- merge(full_table, table, 
@@ -70,6 +155,9 @@ mic <- function(season, metric, n, db, generalize=FALSE, traditional=FALSE,
       
       # Fill NA with 0
       merged_table[is.na(merged_table)] <- 0
+      
+      # For First_Assists
+      metric <- gsub("_", "", metric)
       
       if(traditional){
         # Generalize traditional metrics
@@ -82,6 +170,9 @@ mic <- function(season, metric, n, db, generalize=FALSE, traditional=FALSE,
       }
     }
     else {
+      # For First_Assists
+      metric <- gsub("_", "", metric)
+      
       # Correlation between traditional and GPIV
       mic_vector[i] <- mine(table[, paste0(metric)], 
                             table[, paste0("Weighted", metric)])$MIC
@@ -96,8 +187,10 @@ mic <- function(season, metric, n, db, generalize=FALSE, traditional=FALSE,
   return(mic_df)
 }
 
-calculate_mic <- function(metric_list, season_list, n_partitions,
-                          generalize=FALSE, traditional=FALSE, playoffs=FALSE){
+calculate_mic <- function(metric_list, season_list=NA, n_partitions=1,
+                          generalize=FALSE, traditional=FALSE, playoffs=FALSE,
+                          multiple=FALSE, partitioned=FALSE,
+                          evaluation_start=NA, evaluation_end=NA){
     ## Calculates the MIC value for all metrics and seasons.
     ## 
     ## Input: 
@@ -106,15 +199,25 @@ calculate_mic <- function(metric_list, season_list, n_partitions,
     ##    generalize:  boolean; whether to generalize, i.e. n * partition_size
     ##    traditional: boolean; whether to consider generalization of traditional metrics.
     ##    playoffs:    boolean; whether to consider playoffs or not
-    ##
+    ##    multiple:    boolean; whether to consider more than one season/part
+    ##    partitioned: boolean; whether to consider partitions
+    ##    evaluation_start:  integer; the part on which the occurrences were counted. ("Training data")
+    ##    evaluation_end:  integer; the part on which the evaluation takes place. ("Test data")
     ## Output:
     ##    corr_df: data frame of all MIC values.
   
-    # Loop over all seasons => metrics => 1:partition size
-    corr <- lapply(season_list, function(season){
+    if(is.na(season_list)){
+      iterable <- evaluation_start
+    } else {
+      iterable <- season_list
+    }
+    # Loop over all iterable => metrics 
+    corr <- lapply(iterable, function(season){
       lapply(metric_list, function(metric){
         lapply(1:n_partitions, function(part) mic(season, metric, part, db, 
-                                                  generalize, traditional, playoffs))
+                                                  generalize, traditional,
+                                                  playoffs, multiple, partitioned,
+                                                  season, evaluation_end))
       })
     })
       
@@ -135,6 +238,23 @@ mic_trad_GPIV <- calculate_mic(metric_list, 2007:2013, 10,
 mic_playoffs <- calculate_mic(metric_list, 2007:2013, 1,
                               generalize=FALSE, traditional=FALSE, playoffs=TRUE)
 
+# Correlation within multiple seasons (regular season)
+mic_mult_reg <- calculate_mic(metric_list, 
+                              n_partitions=1,
+                              generalize=FALSE, traditional=FALSe, 
+                              playoffs=FALSE, multiple=TRUE,
+                              evaluation_start=2007:2012,
+                              evaluation_end=2013)
+
+# Correlation within multiple seasons (playoffs)
+mic_mult_play <- calculate_mic(metric_list, 
+                               n_partitions=1,
+                               generalize=FALSE, traditional=FALSe, 
+                               playoffs=TRUE, multiple=TRUE,
+                               evaluation_start=2007:2012,
+                               evaluation_end=2013)
+
+
 # Correlation between n*weighted and weighted
 mic_generalize_GPIV <- calculate_mic(metric_list, 2007:2013, 10,
                                     generalize=TRUE, traditional=FALSE, playoffs=FALSE)
@@ -145,6 +265,8 @@ mic_generalize_trad <- calculate_mic(metric_list, 2007:2013, 10,
 
 # Save as csv files
 write.csv(mic_trad_GPIV,       "./Results/mic_trad_GPIV.csv", row.names = FALSE)
-write.csv(mic_playoffs,        "./Results/mic_playoffs.csv", row.names = FALSE)
+write.csv(mic_playoffs,        "./Results/mic_playoffs.csv",  row.names = FALSE)
+write.csv(mic_mult_reg,        "./Results/mic_mult_reg.csv",  row.names = FALSE)
+write.csv(mic_mult_play,       "./Results/mic_mult_play.csv", row.names = FALSE)
 write.csv(mic_generalize_GPIV, "./Results/mic_generalize_GPIV.csv", row.names = FALSE)
 write.csv(mic_generalize_trad, "./Results/mic_generalize_trad.csv", row.names = FALSE)
