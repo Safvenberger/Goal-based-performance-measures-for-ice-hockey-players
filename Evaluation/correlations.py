@@ -10,7 +10,24 @@ import pandas as pd
 import numpy as np
 
 def get_table_names(connection):
-        
+    """
+    Retrieve all the table names from the database.
+
+    Parameters
+    ----------
+    connection : MySQLconnection as created by db.connect_to_db
+        a connection to the SQL database we are working with.
+
+    Returns
+    -------
+    full_table_names : pd.DataFrame
+        A dataframe with the names of only the full (singular) seasons.
+    mult_table_names : pd.DataFrame
+        A dataframe with the names of the tables that span multiple seasons.
+    part_table_names : pd.DataFrame
+        A dataframe with the names of the tables containing partitioned season data.
+
+    """
     # Get the name of all tables with data of interest
     table_query = """SELECT TABLE_NAME 
                      FROM INFORMATION_SCHEMA.TABLES
@@ -55,7 +72,7 @@ def get_table_names(connection):
     
 
 def correlation(season, metric, n, connection, generalize=False, traditional=False, 
-                playoffs=False, multiple=False, partitioned=False,
+                mixed=False, playoffs=False, multiple=False, partitioned=False,
                 evaluation_start=None, evaluation_end=None):
     """
     Calculate the correlation coefficients (Pearson/Spearman) for a specific
@@ -77,6 +94,8 @@ def correlation(season, metric, n, connection, generalize=False, traditional=Fal
         Whether to generalize the results, i.e. n*partition_value
     traditional : boolean, default is False
         Whether to consider the generalization of traditional metrics.
+    mixed : boolean, default is False.
+        Whether to consider a mix of weighted and traditional metrics.
     playoffs : boolean, default is False
         Whether to consider only the playoffs
     multiple : boolean, default is False
@@ -122,17 +141,17 @@ def correlation(season, metric, n, connection, generalize=False, traditional=Fal
             if multiple:
                 # Multiple season/parts
                 idx = multiple_tables.TABLE_NAME.str.contains(f"{evaluation_start}_{evaluation_end}{play_table}$") 
-                metric_idx = multiple_tables.TABLE_NAME.str.contains(f"{metric.lower()}")
+                metric_idx = multiple_tables.TABLE_NAME.str.contains(f"weighted_{metric.lower()}")
                 table_name = multiple_tables.loc[idx & metric_idx].TABLE_NAME.values[0]
             else:
                 # One full season
                 idx = full_tables.TABLE_NAME.str.contains(f"{season}{play_table}$")
-                metric_idx = full_tables.TABLE_NAME.str.contains(f"{metric.lower()}")
+                metric_idx = full_tables.TABLE_NAME.str.contains(f"weighted_{metric.lower()}")
                 table_name = full_tables.loc[idx & metric_idx].TABLE_NAME.values[0]
         else:
             # Partitions
             idx = partitioned_tables.TABLE_NAME.str.contains(f"{season}_{n}partitions_part{i}")
-            metric_idx = partitioned_tables.TABLE_NAME.str.contains(f"{metric.lower()}")
+            metric_idx = partitioned_tables.TABLE_NAME.str.contains(f"weighted_{metric.lower()}")
             table_name = partitioned_tables.loc[idx & metric_idx].TABLE_NAME.values[0]
         
         table = pd.read_sql(f"SELECT * FROM {table_name}", connection)
@@ -140,7 +159,7 @@ def correlation(season, metric, n, connection, generalize=False, traditional=Fal
         if generalize:
             # Get the full season data
             idx = full_tables.TABLE_NAME.str.contains(f"{season}{play_table}$")
-            metric_idx = full_tables.TABLE_NAME.str.contains(f"{metric.lower()}")
+            metric_idx = full_tables.TABLE_NAME.str.contains(f"weighted_{metric.lower()}")
             full_table_name = full_tables.loc[idx & metric_idx].TABLE_NAME.values[0]
             
             full_table = pd.read_sql(f"SELECT * FROM {full_table_name}", connection)
@@ -154,17 +173,34 @@ def correlation(season, metric, n, connection, generalize=False, traditional=Fal
             merged_table.fillna(0, inplace=True)
             
             # For First_Assists
-            metric = metric.replace("_", "")
+            # metric = metric.replace("_", "")
             
-            if traditional: 
+            if traditional and not mixed: 
                 # Traditional metrics
                 pear, _ = stats.pearsonr(merged_table[f"{metric}_x"], 
-                                          n*merged_table[f"{metric}_y"])
+                                         n*merged_table[f"{metric}_y"])
 
                 # Traditional metrics
                 spear, _ = stats.spearmanr(merged_table[f"{metric}_x"], 
-                                            n*merged_table[f"{metric}_y"])
+                                           n*merged_table[f"{metric}_y"])
+            
+            # Traditional and generalized weighted
+            elif traditional and mixed:
+                # n * Traditional metrics (x) and weighted metrics (y)
+                pear, _ = stats.pearsonr(merged_table[f"{metric}_x"], 
+                                         n*merged_table[f"Weighted{metric}_y"])
 
+                spear, _ = stats.spearmanr(merged_table[f"{metric}_x"], 
+                                           n*merged_table[f"Weighted{metric}_y"])
+
+            # Generalized traditional and weighted
+            elif not traditional and mixed:
+                # Traditional metrics (x) and n * weighted metrics (y)
+                pear, _ = stats.pearsonr(merged_table[f"Weighted{metric}_x"], 
+                                         n*merged_table[f"{metric}_y"])
+
+                spear, _ = stats.spearmanr(merged_table[f"Weighted{metric}_x"], 
+                                           n*merged_table[f"{metric}_y"])
             else:
                 # Calculate correlation coefficients between total weighted and n * weighted
                 pear, _ = stats.pearsonr(merged_table[f"Weighted{metric}_x"], 
@@ -176,7 +212,7 @@ def correlation(season, metric, n, connection, generalize=False, traditional=Fal
             
         else:
             # For First_Assists
-            metric = metric.replace("_", "")
+            # metric = metric.replace("_", "")
             
             # Calculate correlation coefficients between traditional and weighted
             pear, _ = stats.pearsonr(table[f"{metric}"], 
@@ -198,7 +234,7 @@ def correlation(season, metric, n, connection, generalize=False, traditional=Fal
 
 
 def calculate_correlation(metric_list, season_list=None, n_partitions=1,
-                          generalize=False, traditional=False, 
+                          generalize=False, traditional=False, mixed=False,
                           playoffs=False, multiple=False, partitioned=False,
                           evaluation_start=None, evaluation_end=None
                           ):
@@ -218,6 +254,8 @@ def calculate_correlation(metric_list, season_list=None, n_partitions=1,
         Whether to generalize the results, i.e. n*partition_value
     traditional : boolean, default is False
         Whether to consider the generalization of traditional metrics.
+    mixed : boolean, default is False.
+        Whether to consider a mix of weighted and traditional metrics.
     playoffs : boolean, default is False
         Whether to consider only the playoffs
     multiple : boolean, default is False
@@ -264,7 +302,7 @@ def calculate_correlation(metric_list, season_list=None, n_partitions=1,
                 # Correlation for each season, metric and partition part
                 metric_df = metric_df.append(
                     correlation(season, metric, part, connection, 
-                                generalize, traditional, playoffs,
+                                generalize, traditional, mixed, playoffs, 
                                 multiple, partitioned,
                                 curr_eval, evaluation_end).\
                                              assign(Metric=metric, 
@@ -315,11 +353,11 @@ if __name__ == "__main__":
     
     # Correlation within multiple seasons (playoffs)
     corr_mult_play = calculate_correlation(metric_list, 
-                                          n_partitions=1,
-                                          generalize=False, traditional=False, 
-                                          playoffs=True, multiple=True,
-                                          evaluation_start=range(2007, 2013),
-                                          evaluation_end=2013)
+                                           n_partitions=1,
+                                           generalize=False, traditional=False, 
+                                           playoffs=True, multiple=True,
+                                           evaluation_start=range(2007, 2013),
+                                           evaluation_end=2013)
 
     
     # Correlation between n*weighted and weighted
@@ -336,12 +374,30 @@ if __name__ == "__main__":
                                                  generalize=True, traditional=True,
                                                  playoffs=False, partitioned=True)
     
+    # Correlation between n*traditional and weighted
+    corr_generalize_trad_GPIV = calculate_correlation(metric_list,
+                                                      season_list=range(2007, 2014),
+                                                      n_partitions=10,
+                                                      generalize=True, traditional=True,
+                                                      mixed=True,
+                                                      playoffs=False, partitioned=True)
+    
+    # Correlation between n*GPIV and traditional
+    corr_generalize_GPIV_trad = calculate_correlation(metric_list,
+                                                      season_list=range(2007, 2014),
+                                                      n_partitions=10,
+                                                      generalize=True, traditional=False,
+                                                      mixed=True,
+                                                      playoffs=False, partitioned=True)
+    
     # Save as csv files
-    corr_trad_GPIV.to_csv(      "../Results/corr_trad_GPIV.csv", index=False)
-    corr_playoffs.to_csv(       "../Results/corr_playoffs.csv", index=False)
-    corr_mult_reg.to_csv(       "../Results/corr_mult_reg.csv", index=False)
-    corr_mult_play.to_csv(      "../Results/corr_mult_play.csv", index=False)
-    corr_generalize_GPIV.to_csv("../Results/corr_generalize_GPIV.csv", index=False)
-    corr_generalize_trad.to_csv("../Results/corr_generalize_trad.csv", index=False)
+    corr_trad_GPIV.to_csv(           "../Results/corr_trad_GPIV.csv", index=False)
+    corr_playoffs.to_csv(            "../Results/corr_playoffs.csv", index=False)
+    corr_mult_reg.to_csv(            "../Results/corr_mult_reg.csv", index=False)
+    corr_mult_play.to_csv(           "../Results/corr_mult_play.csv", index=False)
+    corr_generalize_GPIV.to_csv(     "../Results/corr_generalize_GPIV.csv", index=False)
+    corr_generalize_trad.to_csv(     "../Results/corr_generalize_trad.csv", index=False)
+    corr_generalize_trad_GPIV.to_csv("../Results/corr_generalize_trad_GPIV.csv", index=False)
+    corr_generalize_GPIV_trad.to_csv("../Results/corr_generalize_GPIV_trad.csv", index=False)
 
 

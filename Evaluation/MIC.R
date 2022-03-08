@@ -65,7 +65,7 @@ get_table_names <- function(db){
 }
 
 
-mic <- function(season, metric, n, db, generalize=FALSE, traditional=FALSE,
+mic <- function(season, metric, n, db, generalize=FALSE, traditional=FALSE, mixed=FALSE,
                 playoffs=FALSE, multiple=FALSE, partitioned=FALSE,
                 evaluation_start=NA, evaluation_end=NA){
   ## Calculates the MIC value.
@@ -78,6 +78,7 @@ mic <- function(season, metric, n, db, generalize=FALSE, traditional=FALSE,
   ##    generalize:  boolean; whether to generalize, i.e. n * partition_size
   ##    traditional: boolean; whether to consider generalization of traditional metrics.
   ##    playoffs:    boolean; whether to consider playoffs or not
+  ##    mixed:       boolean; whether to consider a mix of weighted and traditional metrics.
   ##    multiple:    boolean; whether to consider more than one season/part
   ##    partitioned: boolean; whether to consider partitions
   ##    evaluation_start:  integer; the part on which the occurrences were counted. ("Training data")
@@ -118,24 +119,25 @@ mic <- function(season, metric, n, db, generalize=FALSE, traditional=FALSE,
         # Multiple season/parts
         idx <- grepl(paste0(evaluation_start, "_", evaluation_end, play_table, "$"), 
                      multiple_tables$TABLE_NAME)
-        metric_idx <- grepl(tolower(paste0(metric)), multiple_tables$TABLE_NAME)
+        metric_idx <- grepl(tolower(paste0("weighted_", metric)), multiple_tables$TABLE_NAME)
         table_name <- multiple_tables[idx & metric_idx, ][1]
       }
       else {
         # One full season
         idx <- grepl(paste0(season, play_table, "$"), 
                      full_tables$TABLE_NAME)
-        metric_idx <- grepl(tolower(paste0(metric)), full_tables$TABLE_NAME)
+        metric_idx <- grepl(tolower(paste0("weighted_", metric)), full_tables$TABLE_NAME)
         table_name <- full_tables[idx & metric_idx, ][1]
       }
     }
     else {
       # Partitions
-      idx <- grepl(paste0(season, "_", n, "partitions_part", i), 
+      idx <- grepl(paste0(season, "_", n, "partitions_part", i, "$"), 
                    partitioned_tables$TABLE_NAME)
-      metric_idx <- grepl(tolower(paste0(metric)), partitioned_tables$TABLE_NAME)
+      metric_idx <- grepl(tolower(paste0("weighted_", metric)), partitioned_tables$TABLE_NAME)
       table_name <- partitioned_tables[idx & metric_idx, ][1]
     }
+    # print(table_name)
     # Retrieve the data
     table <- dbGetQuery(db, paste0("SELECT * FROM ", table_name))
     
@@ -143,7 +145,7 @@ mic <- function(season, metric, n, db, generalize=FALSE, traditional=FALSE,
       # Get the full season
       idx <- grepl(paste0(season, play_table, "$"), 
                    full_tables$TABLE_NAME)
-      metric_idx <- grepl(tolower(paste0(metric)), full_tables$TABLE_NAME)
+      metric_idx <- grepl(tolower(paste0("weighted_", metric)), full_tables$TABLE_NAME)
       full_table_name <- full_tables[idx & metric_idx, ][1]
       
       full_table <- dbGetQuery(db, paste0("SELECT * FROM ", full_table_name))
@@ -157,21 +159,30 @@ mic <- function(season, metric, n, db, generalize=FALSE, traditional=FALSE,
       merged_table[is.na(merged_table)] <- 0
       
       # For First_Assists
-      metric <- gsub("_", "", metric)
+      # metric <- gsub("_", "", metric)
       
-      if(traditional){
+      if(traditional & !mixed){
         # Generalize traditional metrics
         mic_vector[i] <- mine(merged_table[, paste0(metric, ".x")], 
-                            n*merged_table[, paste0(metric, ".y")])$MIC
-      } else {
+                              n*merged_table[, paste0(metric, ".y")])$MIC
+      } else if(traditional & mixed){
+        # n * Traditional metrics (x) and weighted metrics (y)
+        mic_vector[i] <- mine(merged_table[, paste0(metric, ".x")], 
+                              n*merged_table[, paste0("Weighted", metric, ".y")])$MIC
+      } else if(!traditional & mixed){
+        # Traditional metrics (x) and n * weighted metrics (y)
+        mic_vector[i] <- mine(merged_table[, paste0("Weighted", metric, ".x")], 
+                              n*merged_table[, paste0(metric, ".y")])$MIC
+      } 
+      else {
         # Generalize GPIV metrics
         mic_vector[i] <- mine(merged_table[, paste0("Weighted", metric, ".x")], 
-                            n*merged_table[, paste0("Weighted", metric, ".y")])$MIC
+                              n*merged_table[, paste0("Weighted", metric, ".y")])$MIC
       }
     }
     else {
       # For First_Assists
-      metric <- gsub("_", "", metric)
+      # metric <- gsub("_", "", metric)
       
       # Correlation between traditional and GPIV
       mic_vector[i] <- mine(table[, paste0(metric)], 
@@ -188,7 +199,8 @@ mic <- function(season, metric, n, db, generalize=FALSE, traditional=FALSE,
 }
 
 calculate_mic <- function(metric_list, season_list=NA, n_partitions=1,
-                          generalize=FALSE, traditional=FALSE, playoffs=FALSE,
+                          generalize=FALSE, traditional=FALSE, 
+                          mixed=FALSE, playoffs=FALSE,
                           multiple=FALSE, partitioned=FALSE,
                           evaluation_start=NA, evaluation_end=NA){
     ## Calculates the MIC value for all metrics and seasons.
@@ -198,6 +210,7 @@ calculate_mic <- function(metric_list, season_list=NA, n_partitions=1,
     ##    season_list: vector of all seasons to consider.
     ##    generalize:  boolean; whether to generalize, i.e. n * partition_size
     ##    traditional: boolean; whether to consider generalization of traditional metrics.
+    ##    mixed:       boolean; whether to consider a mix of weighted and traditional metrics.
     ##    playoffs:    boolean; whether to consider playoffs or not
     ##    multiple:    boolean; whether to consider more than one season/part
     ##    partitioned: boolean; whether to consider partitions
@@ -206,7 +219,7 @@ calculate_mic <- function(metric_list, season_list=NA, n_partitions=1,
     ## Output:
     ##    corr_df: data frame of all MIC values.
   
-    if(is.na(season_list)){
+    if(any(is.na(season_list))){
       iterable <- evaluation_start
     } else {
       iterable <- season_list
@@ -215,7 +228,7 @@ calculate_mic <- function(metric_list, season_list=NA, n_partitions=1,
     corr <- lapply(iterable, function(season){
       lapply(metric_list, function(metric){
         lapply(1:n_partitions, function(part) mic(season, metric, part, db, 
-                                                  generalize, traditional,
+                                                  generalize, traditional, mixed,
                                                   playoffs, multiple, partitioned,
                                                   season, evaluation_end))
       })
@@ -227,16 +240,20 @@ calculate_mic <- function(metric_list, season_list=NA, n_partitions=1,
     return(corr_df)
 }
 
+### Main program
+
 # Specify the metrics to consider
 metric_list <- c("Goals", "Assists", "First_Assists", "PlusMinus", "Points")
 
 # Full season & partition correlation 
 mic_trad_GPIV <- calculate_mic(metric_list, 2007:2013, 10,
-                               generalize=FALSE, traditional=FALSE, playoffs=FALSE)
+                               generalize=FALSE, traditional=FALSE, 
+                               playoffs=FALSE, partitioned=TRUE)
 
 # Correlation within playoffs
 mic_playoffs <- calculate_mic(metric_list, 2007:2013, 1,
-                              generalize=FALSE, traditional=FALSE, playoffs=TRUE)
+                              generalize=FALSE, traditional=FALSE, 
+                              playoffs=TRUE)
 
 # Correlation within multiple seasons (regular season)
 mic_mult_reg <- calculate_mic(metric_list, 
@@ -257,16 +274,32 @@ mic_mult_play <- calculate_mic(metric_list,
 
 # Correlation between n*weighted and weighted
 mic_generalize_GPIV <- calculate_mic(metric_list, 2007:2013, 10,
-                                    generalize=TRUE, traditional=FALSE, playoffs=FALSE)
+                                    generalize=TRUE, traditional=FALSE, 
+                                    playoffs=FALSE, partitioned=TRUE)
 
 # Correlation between n*traditional and traditional
 mic_generalize_trad <- calculate_mic(metric_list, 2007:2013, 10,
-                                     generalize=TRUE, traditional=TRUE, playoffs=FALSE)
+                                     generalize=TRUE, traditional=TRUE, 
+                                     playoffs=FALSE, partitioned=TRUE)
+                                     
+# Correlation between n*traditional and GPIV
+mic_generalize_trad_GPIV <- calculate_mic(metric_list, 2007:2013, 10,
+                                          generalize=TRUE, traditional=TRUE, 
+                                          mixed=TRUE, playoffs=FALSE,
+                                          partitioned=TRUE)
+                                     
+# Correlation between n*GPIV and traditional
+mic_generalize_GPIV_trad <- calculate_mic(metric_list, 2007:2013, 10,
+                                          generalize=TRUE, traditional=FALSE,
+                                          mixed=TRUE, playoffs=FALSE,
+                                          partitioned=TRUE)
 
 # Save as csv files
-write.csv(mic_trad_GPIV,       "./Results/mic_trad_GPIV.csv", row.names = FALSE)
-write.csv(mic_playoffs,        "./Results/mic_playoffs.csv",  row.names = FALSE)
-write.csv(mic_mult_reg,        "./Results/mic_mult_reg.csv",  row.names = FALSE)
-write.csv(mic_mult_play,       "./Results/mic_mult_play.csv", row.names = FALSE)
-write.csv(mic_generalize_GPIV, "./Results/mic_generalize_GPIV.csv", row.names = FALSE)
-write.csv(mic_generalize_trad, "./Results/mic_generalize_trad.csv", row.names = FALSE)
+write.csv(mic_trad_GPIV,            "./Results/mic_trad_GPIV.csv", row.names = FALSE)
+write.csv(mic_playoffs,             "./Results/mic_playoffs.csv",  row.names = FALSE)
+write.csv(mic_mult_reg,             "./Results/mic_mult_reg.csv",  row.names = FALSE)
+write.csv(mic_mult_play,            "./Results/mic_mult_play.csv", row.names = FALSE)
+write.csv(mic_generalize_GPIV,      "./Results/mic_generalize_GPIV.csv", row.names = FALSE)
+write.csv(mic_generalize_trad,      "./Results/mic_generalize_trad.csv", row.names = FALSE)
+write.csv(mic_generalize_trad_GPIV, "./Results/mic_generalize_trad_GPIV.csv", row.names = FALSE)
+write.csv(mic_generalize_GPIV_trad, "./Results/mic_generalize_GPIV_trad.csv", row.names = FALSE)
