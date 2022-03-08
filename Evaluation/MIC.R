@@ -167,12 +167,12 @@ mic <- function(season, metric, n, db, generalize=FALSE, traditional=FALSE, mixe
                               n*merged_table[, paste0(metric, ".y")])$MIC
       } else if(traditional & mixed){
         # n * Traditional metrics (x) and weighted metrics (y)
-        mic_vector[i] <- mine(merged_table[, paste0(metric, ".x")], 
-                              n*merged_table[, paste0("Weighted", metric, ".y")])$MIC
-      } else if(!traditional & mixed){
-        # Traditional metrics (x) and n * weighted metrics (y)
         mic_vector[i] <- mine(merged_table[, paste0("Weighted", metric, ".x")], 
                               n*merged_table[, paste0(metric, ".y")])$MIC
+      } else if(!traditional & mixed){
+        # Traditional metrics (x) and n * weighted metrics (y)
+        mic_vector[i] <- mine(merged_table[, paste0(metric, ".x")], 
+                              n*merged_table[, paste0("Weighted", metric, ".y")])$MIC
       } 
       else {
         # Generalize GPIV metrics

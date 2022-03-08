@@ -187,20 +187,20 @@ def correlation(season, metric, n, connection, generalize=False, traditional=Fal
             # Traditional and generalized weighted
             elif traditional and mixed:
                 # n * Traditional metrics (x) and weighted metrics (y)
-                pear, _ = stats.pearsonr(merged_table[f"{metric}_x"], 
-                                         n*merged_table[f"Weighted{metric}_y"])
-
-                spear, _ = stats.spearmanr(merged_table[f"{metric}_x"], 
-                                           n*merged_table[f"Weighted{metric}_y"])
-
-            # Generalized traditional and weighted
-            elif not traditional and mixed:
-                # Traditional metrics (x) and n * weighted metrics (y)
                 pear, _ = stats.pearsonr(merged_table[f"Weighted{metric}_x"], 
                                          n*merged_table[f"{metric}_y"])
 
                 spear, _ = stats.spearmanr(merged_table[f"Weighted{metric}_x"], 
                                            n*merged_table[f"{metric}_y"])
+
+            # Generalized traditional and weighted
+            elif not traditional and mixed:
+                # Traditional metrics (x) and n * weighted metrics (y)
+                pear, _ = stats.pearsonr(merged_table[f"{metric}_x"], 
+                                         n*merged_table[f"Weighted{metric}_y"])
+
+                spear, _ = stats.spearmanr(merged_table[f"{metric}_x"], 
+                                           n*merged_table[f"Weighted{metric}_y"])
             else:
                 # Calculate correlation coefficients between total weighted and n * weighted
                 pear, _ = stats.pearsonr(merged_table[f"Weighted{metric}_x"], 
