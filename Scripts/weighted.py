@@ -282,9 +282,9 @@ def calc_first_assists(data):
     
     # Calculate number of assists and weighted assists per player
     weighted_first_assists = first_assists.groupby("PlayerId")[["AssistedGoals", "reward"]].\
-        sum().reset_index().rename(columns={"AssistedGoals": "FirstAssists", 
-                                            "reward": "WeightedFirstAssists"}).\
-                              sort_values("WeightedFirstAssists", ascending=False)
+        sum().reset_index().rename(columns={"AssistedGoals": "First_Assists", 
+                                            "reward": "WeightedFirst_Assists"}).\
+                              sort_values("WeightedFirst_Assists", ascending=False)
                               
     return weighted_first_assists
 
@@ -503,7 +503,7 @@ def create_weighted_metrics(connection, engine, season=None, suffix="",
     assists = add_ranks(add_names(calc_assists(df), connection), "Assists")
     
     # Calculate first assists and add player names + ranks
-    first_assists = add_ranks(add_names(calc_first_assists(df), connection), "FirstAssists")
+    first_assists = add_ranks(add_names(calc_first_assists(df), connection), "First_Assists")
     
     # Calculate points and add player names + ranks
     points = add_ranks(calc_points(goals, assists), "Points")
