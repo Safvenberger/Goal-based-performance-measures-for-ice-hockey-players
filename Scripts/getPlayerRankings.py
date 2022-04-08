@@ -88,7 +88,7 @@ def write_to_excel(connection, position: list=None, file_name: str="GPIV"):
 
     # Name/year of all seasons 
     seasons = table_names["TABLE_NAME"].str.\
-        replace("_|[A-z]+(?=\d{4})", "", regex=True).unique()            
+        extract("(\d{4})").stack().droplevel(1).unique()            
 
     for metric in metrics:
         with pd.ExcelWriter(f"../Results/{file_name}-{metric}.xlsx") as writer:

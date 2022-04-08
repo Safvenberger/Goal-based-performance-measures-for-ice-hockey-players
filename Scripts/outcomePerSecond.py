@@ -3,7 +3,10 @@
 
 import pandas as pd
 from db import connect_to_db, create_db_engine
+from tqdm import tqdm
 
+# Register tqdm to work with pandas
+tqdm.pandas()
 
 def occ_before(df, TotalElapsedTime, GD, MD, PeriodNumber):
     """
@@ -93,7 +96,8 @@ def occ_after(df, TotalElapsedTime, GD, MD, PeriodNumber):
 
     """
     # Get post-goal events closest to time of the goal and keep only the first per game
-    after_general = df[(df["TotalElapsedTime"] > TotalElapsedTime)].\
+    after_general = df[(df["TotalElapsedTime"] >= TotalElapsedTime) &
+                       (df["EventType"] != "GOAL")].\
         drop_duplicates("GameId", keep="first")
     
     # Get the required goal and manpower difference for home team perspective
@@ -172,9 +176,9 @@ def count_occurrences(connection, engine, multiple_parts=False,
         df = pd.read_sql(query, con=connection)
     
     # Occurences prior to goal
-    before = df_goals.apply(lambda row: occ_before(df, row.TotalElapsedTime, 
-                                                   row.GD, row.MD, 
-                                                   row.PeriodNumber), axis=1)
+    before = df_goals.progress_apply(lambda row: occ_before(df, row.TotalElapsedTime, 
+                                                            row.GD, row.MD, 
+                                                            row.PeriodNumber), axis=1)
     print("Finished before occurrences!")
 
     # Get state after goal (i.e. the face-off usually)
@@ -191,9 +195,9 @@ def count_occurrences(connection, engine, multiple_parts=False,
                                         (df["EventNumber"] == row.EventNumber+1)]])
     
     # Occurences after goal
-    after = state_after.apply(lambda row: occ_after(df, row.TotalElapsedTime, 
-                                                    row.GD, row.MD, 
-                                                    row.PeriodNumber), axis=1)
+    after = state_after.progress_apply(lambda row: occ_after(df, row.TotalElapsedTime, 
+                                                             row.GD, row.MD, 
+                                                             row.PeriodNumber), axis=1)
     
     print("Finished after occurrences!")
 

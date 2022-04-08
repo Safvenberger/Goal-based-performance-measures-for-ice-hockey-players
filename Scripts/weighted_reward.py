@@ -216,7 +216,7 @@ if __name__ == "__main__":
         n_partitions = 10
         
         # Main code
-        for season in range(2013, 2014):
+        for season in range(2007, 2014):
             partition_dict = partitioned_season(season, n_partitions)
             for partition in range(2, n_partitions+1): # Skip the full season
                 print(f"Partition: {partition}")
@@ -247,7 +247,6 @@ if __name__ == "__main__":
                               create_copy=True, multiple_parts=True,
                               playoffs=False, evaluation_season=evaluation_season) 
         
-        # Note to self: Fix table names for 2011-2013 and 2012-2013
         # Main code - playoffs
         apply_weighted_reward(season=start_season, 
                               suffix=f"{start_season}_{evaluation_season}_playoffs", 
