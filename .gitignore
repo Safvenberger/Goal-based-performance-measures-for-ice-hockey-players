@@ -5,3 +5,4 @@
 *.Rproj
 __pycache__
 .spyproject
+**Results/**.csv
