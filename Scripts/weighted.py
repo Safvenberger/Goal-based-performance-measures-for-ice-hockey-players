@@ -6,7 +6,8 @@ from db import connect_to_db, create_db_engine
 import numpy as np
 
 
-def get_data(connection, season=None, multiple_parts=False, pbp_table="mpbp"):
+def get_data(connection, season=None, multiple_parts=False, 
+             pbp_table="mpbp", reward_table="reward"):
     """
     Extract the needed data from the pbp, event_goal and reward tables.
 
@@ -26,6 +27,9 @@ def get_data(connection, season=None, multiple_parts=False, pbp_table="mpbp"):
     pbp_table : string.
         Name of the play by play SQL table to be used. 
         The default is "mpbp".
+    reward_table : string.
+        Name of the reward SQL table to be used. 
+        The default is "reward"
         
     Returns
     -------
@@ -48,8 +52,10 @@ def get_data(connection, season=None, multiple_parts=False, pbp_table="mpbp"):
     SELECT pbp.GameId, pbp.AwayTeamId, pbp.HomeTeamId, pbp.EventNumber, pbp.PeriodNumber, 
            r.TotalElapsedTime, r.GD, r.MD, 
            g.ScoringTeam, g.ScoringTeamId, g.Disposition, g.GoalScorerId, 
-           r.reward, g.FirstAssistId, g.SecondAssistId, {away_string}, {home_string}
-    FROM {pbp_table} pbp, event_goal g, reward r
+           r.reward, g.FirstAssistId, g.SecondAssistId, {away_string}, {home_string},
+           win_before, loss_before, `tie-win_before`, `tie-loss_before`,
+           win_after, loss_after, `tie-win_after`, `tie-loss_after`
+    FROM {pbp_table} pbp, event_goal g, {reward_table} r
     WHERE pbp.GameId = g.GameId AND pbp.GameId = r.GameId
           AND pbp.PeriodNumber >= 1 AND pbp.PeriodNumber <= 3 
           AND pbp.ExternalEventId = g.GoalId

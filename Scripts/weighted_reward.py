@@ -188,9 +188,9 @@ if __name__ == "__main__":
 
     ### Input arguments
     full_season = False
-    playoffs_seasons = False
+    playoffs_seasons = True
     partitioned_seasons = False
-    multiple_seasons = True
+    multiple_seasons = False
     multiple_parts = False
 
     ######################### --- Full season --- #############################

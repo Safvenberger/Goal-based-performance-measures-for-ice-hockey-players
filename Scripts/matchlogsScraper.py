@@ -367,6 +367,12 @@ if __name__ == "__main__":
         # Get all the gamelogs and add them to the database 
         add_gamelogs_to_db(connection, engine)
     
+        # Close the connection
+        connection.close()
+        
+        # Re-open connection
+        connection = connect_to_db("hockey")
+
         # Merge the GameId and dates
         merge_id_and_date(connection, engine)
     
